@@ -311,8 +311,13 @@ func (w *writer) update(ctx context.Context, tx *sql.Tx, tier string) error {
 	return appendVersion(ctx, tx, id, w, true)
 }
 
-// storeParts writes the resolved anchors and the requested links of entry id.
+// storeParts writes the resolved anchors and the requested links of entry id, and files any tag the vocabulary lacks as undefined.
 func (w *writer) storeParts(ctx context.Context, tx *sql.Tx, id string) error {
+	for _, tag := range w.req.Tags {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO tags (id) VALUES (?)`, tag); err != nil {
+			return err
+		}
+	}
 	for _, a := range w.anchors {
 		a.EntryID = id
 		if err := insertAnchor(ctx, tx, a); err != nil {

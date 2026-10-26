@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -8,10 +9,36 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
+	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
+
+const sweepEvery = 6 * time.Hour
+
+// sweepLoop runs the sweep once now and then on every tick until ctx ends.
+func sweepLoop(ctx context.Context, st *store.Store) {
+	checker := anchor.Checker{Repo: st.Repo, Fetcher: anchor.NewFetch(&net.Resolver{})}
+	tick := time.NewTicker(sweepEvery)
+	defer tick.Stop()
+	for {
+		rep, err := trail.Sweep(ctx, st.DB, checker, time.Now)
+		if err != nil {
+			log.Printf("trails: sweep: %v", err)
+		} else {
+			log.Printf("trails: sweep checked %d, dormant %d, deleted %d, sessions closed %d", rep.Checked, rep.Dormant, rep.Deleted, rep.Closed)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
 
 func main() {
 	cwd, _ := os.Getwd()
@@ -39,6 +66,10 @@ func run(repo, addr, home string) error {
 		return err
 	}
 	defer st.Close()
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go sweepLoop(ctx, st)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

@@ -13,6 +13,9 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
+// RefusalRules names every rule this package refuses with; the mcp golden file pins them and a test keeps the list equal to the source.
+var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open"}
+
 // Refusal is a handler error that the trail logs as refused:<Rule> and the agent sees with its fix.
 type Refusal struct {
 	Rule string
@@ -112,14 +115,27 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 }
 
 // StartSession creates the session row for an id the recorder already issued.
-func StartSession(ctx context.Context, db *sql.DB, id, actor, task, taskType string) error {
+// runtimeID is the agent runtime's own session id, which hook endpoints use to find the session; it may be empty.
+func StartSession(ctx context.Context, db *sql.DB, id, actor, task, taskType, runtimeID string) error {
 	task = strings.TrimSpace(task)
 	if task == "" {
 		return &Refusal{Rule: "task_empty", Fix: "pass a one-line task describing what you are about to do"}
 	}
-	_, err := db.ExecContext(ctx, `INSERT INTO sessions (id, actor, task, task_type, started_at) VALUES (?, ?, ?, ?, ?)`,
-		id, actor, task, taskType, store.Now())
+	_, err := db.ExecContext(ctx, `INSERT INTO sessions (id, actor, task, task_type, runtime_session_id, started_at) VALUES (?, ?, ?, ?, NULLIF(?,''), ?)`,
+		id, actor, task, taskType, strings.TrimSpace(runtimeID), store.Now())
 	return err
+}
+
+// RequireSession refuses a call whose session id the server never issued.
+func RequireSession(ctx context.Context, db *sql.DB, id string) error {
+	ok, err := SessionExists(ctx, db, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
+	}
+	return nil
 }
 
 func SessionExists(ctx context.Context, db *sql.DB, id string) (bool, error) {

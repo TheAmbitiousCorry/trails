@@ -71,6 +71,9 @@ var imageSchemes = map[string]struct{}{
 	"https": {},
 }
 
+// RefusalRules lists the schema rules.
+var RefusalRules = []string{RuleUnknownNode, RuleUnknownMark, RuleHeadingLevel, RuleURLScheme, RuleDepth, RuleBytes, RuleMalformed}
+
 // Refusal is the error Validate returns. Rule names the failed check and Fix tells the writer what to change.
 type Refusal struct {
 	Rule string

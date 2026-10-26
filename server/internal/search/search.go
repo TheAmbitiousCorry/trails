@@ -38,6 +38,9 @@ var defaults = map[string]float64{
 	"search_threshold":     0.5,
 	"duplicate_threshold":  0.8,
 	"paraphrase_threshold": 0.5,
+	"search_min_corpus":    20,
+	"open_gap_cap":         20,
+	"dismiss_cap":          3,
 }
 
 // Setting reads a numeric threshold from settings, falling back to the migration's default when the row is missing or malformed.
@@ -229,6 +232,7 @@ func signPath(ctx context.Context, db DBTX, signID string) ([]string, error) {
 }
 
 // Query returns up to limit hits whose bm25 score clears search_threshold. miss is true when none does.
+// Below search_min_corpus live entries bm25 gives common terms no weight, so any FTS match is a hit and the threshold is skipped.
 func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []Hit, miss bool, err error) {
 	all, err := Rank(ctx, db, q, taskType)
 	if err != nil {
@@ -238,8 +242,17 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 	if err != nil {
 		return nil, false, err
 	}
+	var live int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE tier != 'dormant' AND superseded_by IS NULL`).Scan(&live); err != nil {
+		return nil, false, err
+	}
+	minCorpus, err := Setting(ctx, db, "search_min_corpus")
+	if err != nil {
+		return nil, false, err
+	}
+	small := float64(live) < minCorpus
 	for _, h := range all {
-		if h.Score >= threshold {
+		if small || h.Score >= threshold {
 			hits = append(hits, h)
 		}
 	}

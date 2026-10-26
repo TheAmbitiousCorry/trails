@@ -31,6 +31,9 @@ var fixes = map[string]string{
 
 const genericFix = "rewrite it with paragraphs, headings, lists, code blocks, blockquotes, images or tables"
 
+// RefusalRules is the Markdown adapter's one rule family; the construct follows the colon.
+var RefusalRules = []string{"unsupported: <construct>"}
+
 func unsupported(construct string) *content.Refusal {
 	fix, ok := fixes[construct]
 	if !ok {

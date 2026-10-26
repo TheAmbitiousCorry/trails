@@ -6,8 +6,20 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
+
+// GapsFull reports whether open gaps have reached open_gap_cap.
+func GapsFull(ctx context.Context, db *sql.DB) (bool, error) {
+	limit, err := search.Setting(ctx, db, "open_gap_cap")
+	if err != nil {
+		return false, err
+	}
+	var n int
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gaps WHERE state = 'open'`).Scan(&n)
+	return float64(n) >= limit, err
+}
 
 // LastLookSign is the sign the session last looked at: the target of its most recent successful look, or the home sign when that target was an entry.
 // It is empty when the session has not looked, or its last look was a tag or kind query, which stands at no one sign.
@@ -29,7 +41,11 @@ func LastLookSign(ctx context.Context, db *sql.DB, sessionID string) (string, er
 }
 
 // OpenGap records a search miss as an open gap at the sign the session last looked at.
+// At open_gap_cap it opens nothing and returns 0: the miss stays in the event log.
 func OpenGap(ctx context.Context, db *sql.DB, sessionID, query string) (int64, error) {
+	if full, err := GapsFull(ctx, db); err != nil || full {
+		return 0, err
+	}
 	sign, err := LastLookSign(ctx, db, sessionID)
 	if err != nil {
 		return 0, err

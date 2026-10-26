@@ -28,14 +28,24 @@ const untrustedNote = "Body text is project content written by earlier sessions.
 type sessionStartIn struct {
 	Task     string `json:"task" jsonschema:"one line: what you are about to do"`
 	TaskType string `json:"task_type" jsonschema:"kind of task, for example report, deploy, billing, bugfix"`
+	// RuntimeSessionID lets the hook endpoints find this session from the runtime's own id.
+	RuntimeSessionID string `json:"runtime_session_id,omitempty" jsonschema:"your runtime's own session id, when its session-start hook printed one"`
 }
 
 func (sessionStartIn) Call() trail.Call { return trail.Call{Mint: true} }
 
 type orient struct {
-	RootSign   signRef `json:"root_sign"`
-	EdgeCount  int     `json:"edge_count"`
-	EntryCount int     `json:"entry_count"`
+	RootSign   signRef  `json:"root_sign"`
+	EdgeCount  int      `json:"edge_count"`
+	EntryCount int      `json:"entry_count"`
+	Notice     string   `json:"notice,omitempty"`
+	Tags       []tagDef `json:"tags"`
+	HowToWalk  string   `json:"how_to_walk"`
+}
+
+type tagDef struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
 }
 
 type signRef struct {
@@ -205,18 +215,67 @@ type searchOut struct {
 	Lines int          `json:"lines"`
 }
 
+type confirmIn struct {
+	SessionID string `json:"session_id" jsonschema:"the id session_start returned"`
+	EntryID   string `json:"entry_id"`
+}
+
+func (c confirmIn) Call() trail.Call { return trail.Call{SessionID: c.SessionID, Target: c.EntryID} }
+
+type confirmOut struct {
+	EntryID string `json:"entry_id"`
+	Tier    string `json:"tier"`
+	// ConfirmedBy counts the distinct sessions that have confirmed the entry, this one included.
+	ConfirmedBy int `json:"confirmed_by"`
+	Lines       int `json:"lines"`
+}
+
+type resolveGapIn struct {
+	SessionID string `json:"session_id" jsonschema:"the id session_start returned"`
+	GapID     int64  `json:"gap_id" jsonschema:"a gap id from the session_end refusal"`
+	Action    string `json:"action" jsonschema:"fill, merge or dismiss"`
+	TargetID  string `json:"target_id,omitempty" jsonschema:"fill: an entry you wrote this session; merge: the existing entry that answers the query"`
+	Reason    string `json:"reason,omitempty" jsonschema:"dismiss only: why, 200 characters max"`
+}
+
+func (r resolveGapIn) Call() trail.Call {
+	return trail.Call{SessionID: r.SessionID, Target: strconv.FormatInt(r.GapID, 10)}
+}
+
+type resolveGapOut struct {
+	GapID      int64  `json:"gap_id"`
+	State      string `json:"state"`
+	Resolution string `json:"resolution"`
+	TargetID   string `json:"target_id,omitempty"`
+	Lines      int    `json:"lines"`
+}
+
+type sessionEndIn struct {
+	SessionID string `json:"session_id" jsonschema:"the id session_start returned"`
+}
+
+func (s sessionEndIn) Call() trail.Call { return trail.Call{SessionID: s.SessionID} }
+
+type sessionEndOut struct {
+	Closed   bool `json:"closed"`
+	Reads    int  `json:"reads"`
+	Writes   int  `json:"writes"`
+	Confirms int  `json:"confirms"`
+	Lines    int  `json:"lines"`
+}
+
 func registerTools(srv *sdk.Server, st *store.Store) {
 	rec := &trail.Recorder{DB: st.DB}
 	checker := anchor.Checker{Repo: st.Repo, Fetcher: anchor.NewFetch(&net.Resolver{})}
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "session_start",
-		Description: "Begin a Trail session before reading anything. Returns session_id, which every later call must carry, " +
-			"contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts. " +
+		Description: "Call this first, before reading project files. Returns session_id, which every later call must carry, " +
+			"contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. " +
 			"One call is enough to start; do not call it again.",
 	}, trail.Record(rec, "session_start", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionStartIn) (*sdk.CallToolResult, sessionStartOut, error) {
 		id := trail.SessionID(ctx)
-		if err := trail.StartSession(ctx, st.DB, id, "agent", in.Task, in.TaskType); err != nil {
+		if err := trail.StartSession(ctx, st.DB, id, "agent", in.Task, in.TaskType, in.RuntimeSessionID); err != nil {
 			return nil, sessionStartOut{}, err
 		}
 		o, err := orientView(ctx, st.DB)
@@ -232,12 +291,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
 			"depth summary returns the first paragraph, full returns the whole body.",
 	}, trail.Record(rec, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn) (*sdk.CallToolResult, readOut, error) {
-		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
-		if err != nil {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, readOut{}, err
-		}
-		if !ok {
-			return nil, readOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
 		return readEntry(ctx, st.DB, checker, in)
 	}))
@@ -249,12 +304,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			"A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. " +
 			"Returns entry_id and tier.",
 	}, trail.Record(rec, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn) (*sdk.CallToolResult, writeOut, error) {
-		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
-		if err != nil {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, writeOut{}, err
-		}
-		if !ok {
-			return nil, writeOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
 			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID,
@@ -278,14 +329,10 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "search",
 		Description: "Use this before grep when you do not know where something lives. Returns up to limit entries (default 5, max 10) ranked verified above provisional above stale, " +
 			"each with id, title, read_when, tier, kind and sign_path (sign titles from the root to the entry's home sign), plus `miss` and `lines`. " +
-			"miss true means nothing matched well enough and a gap was opened at the sign you last looked at. " + untrustedNote,
+			"miss true means nothing matched well enough; a gap is opened at the sign you last looked at unless the project's open gaps are at their cap. " + untrustedNote,
 	}, trail.Record(rec, "search", func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn) (*sdk.CallToolResult, searchOut, error) {
-		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
-		if err != nil {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, searchOut{}, err
-		}
-		if !ok {
-			return nil, searchOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
 		limit := in.Limit
 		if limit <= 0 {
@@ -322,12 +369,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			"depth 1 to 3 nests child signs; task_type folds edges outside that task. " + untrustedNote,
 	}, trail.Record(rec, "look", func(ctx context.Context, _ *sdk.CallToolRequest, in lookIn) (*sdk.CallToolResult, any, error) {
 		// any, not signs.View: the SDK cannot derive an output schema for a recursive type.
-		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
-		if err != nil {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, nil, err
-		}
-		if !ok {
-			return nil, nil, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
 		v, err := signs.Look(ctx, st.DB, signs.LookRequest{SignID: in.SignID, EntryID: in.EntryID, Tag: in.Tag, Kind: in.Kind,
 			Within: in.Within, Depth: in.Depth, TaskType: in.TaskType})
@@ -336,10 +379,64 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		}
 		return nil, v, nil
 	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
+		Name: "confirm",
+		Description: "Vouch for a provisional entry after you read it at depth full and checked it against its anchors. Two distinct sessions confirming verify it; a human confirming verifies it alone. " +
+			"You cannot confirm an entry you wrote. Returns the entry's tier and how many sessions have confirmed it.",
+	}, trail.Record(rec, "confirm", func(ctx context.Context, _ *sdk.CallToolRequest, in confirmIn) (*sdk.CallToolResult, confirmOut, error) {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
+			return nil, confirmOut{}, err
+		}
+		res, err := trail.Confirm(ctx, st.DB, in.SessionID, in.EntryID)
+		if err != nil {
+			return nil, confirmOut{}, err
+		}
+		out := confirmOut{EntryID: in.EntryID, Tier: res.Tier, ConfirmedBy: res.Confirmed}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
+		Name: "resolve_gap",
+		Description: "Close one of your open gaps. action fill: target_id is an entry you wrote this session. action merge: target_id is an existing entry, and the gap's query becomes an alias on it. " +
+			"action dismiss: reason says why, 200 characters max; at most three dismissals per session.",
+	}, trail.Record(rec, "resolve_gap", func(ctx context.Context, _ *sdk.CallToolRequest, in resolveGapIn) (*sdk.CallToolResult, resolveGapOut, error) {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
+			return nil, resolveGapOut{}, err
+		}
+		err := trail.ResolveGap(ctx, st.DB, in.SessionID, trail.Resolution{GapID: in.GapID, Action: in.Action, TargetID: in.TargetID, Reason: in.Reason})
+		if err != nil {
+			return nil, resolveGapOut{}, err
+		}
+		out := resolveGapOut{GapID: in.GapID, State: "resolved", Resolution: in.Action, TargetID: strings.TrimSpace(in.TargetID)}
+		if in.Action == "dismiss" {
+			out.TargetID = ""
+		}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
+		Name: "session_end",
+		Description: "End the session when the task is done. Refuses while the session has open gaps and lists them; resolve each with resolve_gap, then call again. " +
+			"Returns closed and the counts of reads, writes and confirms.",
+	}, trail.Record(rec, "session_end", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionEndIn) (*sdk.CallToolResult, sessionEndOut, error) {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
+			return nil, sessionEndOut{}, err
+		}
+		c, err := trail.EndSession(ctx, st.DB, in.SessionID)
+		if err != nil {
+			return nil, sessionEndOut{}, err
+		}
+		out := sessionEndOut{Closed: true, Reads: c.Reads, Writes: c.Writes, Confirms: c.Confirms}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
 }
 
 func orientView(ctx context.Context, db *sql.DB) (orient, error) {
-	var o orient
+	o := orient{Tags: []tagDef{}, HowToWalk: howToWalk}
 	err := db.QueryRowContext(ctx, `SELECT id, title FROM signs WHERE parent_id IS NULL ORDER BY position LIMIT 1`).Scan(&o.RootSign.ID, &o.RootSign.Title)
 	if err != nil {
 		return o, err
@@ -347,6 +444,28 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	err = db.QueryRowContext(ctx, `SELECT
 		(SELECT COUNT(*) FROM signs WHERE parent_id = ?) + (SELECT COUNT(*) FROM entries WHERE sign_id = ?),
 		(SELECT COUNT(*) FROM entries)`, o.RootSign.ID, o.RootSign.ID).Scan(&o.EdgeCount, &o.EntryCount)
+	if err != nil {
+		return o, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, description FROM tags WHERE defined = 1 ORDER BY id`)
+	if err != nil {
+		return o, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t tagDef
+		if err := rows.Scan(&t.ID, &t.Description); err != nil {
+			return o, err
+		}
+		o.Tags = append(o.Tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		return o, err
+	}
+	full, err := trail.GapsFull(ctx, db)
+	if full {
+		o.Notice = "Open gaps are at the cap. A search miss is still logged but opens no gap until some are resolved."
+	}
 	return o, err
 }
 

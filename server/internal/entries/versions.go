@@ -75,7 +75,7 @@ func slug(title string) string {
 	return s
 }
 
-// freeID returns base, or base-2, base-3 and so on, the first that no entry or sign already holds.
+// freeID returns base, or base-2, base-3 and so on, the first that no entry or sign holds and no expired entry held.
 func freeID(ctx context.Context, tx *sql.Tx, base string) (string, error) {
 	for n := 1; ; n++ {
 		id := base
@@ -83,7 +83,7 @@ func freeID(ctx context.Context, tx *sql.Tx, base string) (string, error) {
 			id = base + "-" + strconv.Itoa(n)
 		}
 		var taken int
-		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM entries WHERE id = ?) OR EXISTS(SELECT 1 FROM signs WHERE id = ?)`, id, id).Scan(&taken)
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM entries WHERE id = ?) OR EXISTS(SELECT 1 FROM signs WHERE id = ?) OR EXISTS(SELECT 1 FROM ids WHERE id = ?)`, id, id, id).Scan(&taken)
 		if err != nil || taken == 0 {
 			return id, err
 		}

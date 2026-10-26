@@ -22,6 +22,9 @@ import (
 
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "example": 40, "render": 60, "reference": 100}
 
+// RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
+var RefusalRules = []string{"schema:kind", "schema:title", "schema:read_when", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
+
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
 }

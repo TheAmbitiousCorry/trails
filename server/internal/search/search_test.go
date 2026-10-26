@@ -20,6 +20,8 @@ func open(t *testing.T) (*store.Store, anchor.Checker) {
 	}
 	t.Cleanup(func() { st.Close() })
 	c := anchor.Checker{Repo: st.Repo}
+	// These tests exercise the relevance threshold, which the small-corpus rule would skip.
+	st.DB.Exec(`UPDATE settings SET value = '1' WHERE key = 'search_min_corpus'`)
 	// Unrelated entries keep bm25 idf positive for terms unique to the entry under test.
 	for i, topic := range []string{"harbour tides", "orchard grafting", "violin varnish", "glacier survey", "pottery kiln", "beekeeping winter"} {
 		write(t, st, c, entries.WriteRequest{Actor: "user", ParentSignID: "root", Kind: "decision", Title: "Notes on " + topic,
@@ -111,5 +113,30 @@ func TestSeededEntryIsSearchable(t *testing.T) {
 	hits, miss, err := search.Query(context.Background(), st.DB, "agents walk wiki sign", "", 5)
 	if err != nil || miss || hits[0].EntryID != "trail" {
 		t.Errorf("seed search = %+v miss=%v err=%v", hits, miss, err)
+	}
+}
+
+func TestSmallCorpusAnyMatchIsAHit(t *testing.T) {
+	st, err := store.Open(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	c := anchor.Checker{Repo: st.Repo}
+	write(t, st, c, decision("s-1", "root", "Project wiki rules", "The project wiki lives in Trail."))
+	ctx := context.Background()
+
+	// "project" is in both live entries, so its bm25 weight is near zero.
+	hits, miss, err := search.Query(ctx, st.DB, "project", "", 5)
+	if err != nil || miss || len(hits) != 2 {
+		t.Fatalf("two-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
+	}
+	if hits[0].Score >= 0.5 {
+		t.Fatalf("score %v clears the threshold, so this test would not prove the rule", hits[0].Score)
+	}
+
+	st.DB.Exec(`UPDATE settings SET value = '2' WHERE key = 'search_min_corpus'`)
+	if _, miss, _ := search.Query(ctx, st.DB, "project", "", 5); !miss {
+		t.Error("corpus at search_min_corpus still skips the threshold")
 	}
 }

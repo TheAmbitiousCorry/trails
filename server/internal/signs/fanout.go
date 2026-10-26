@@ -13,6 +13,9 @@ import (
 
 const defaultFanOutCap = 7
 
+// RefusalRules names every rule this package refuses with.
+var RefusalRules = []string{"depth_cap", "unknown_entry", "look_target", "unknown_sign", "split this fork"}
+
 // FanOutCap is the project's edge cap per sign; the signs package is its only owner.
 func FanOutCap(ctx context.Context, db *sql.DB) (int, error) {
 	var v sql.NullString
