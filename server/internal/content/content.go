@@ -1,5 +1,5 @@
 // Package content validates Trails entry bodies, which are ProseMirror JSON documents.
-// It is an allow-list tree walk, not a schema: testdata fixtures pin its lists to the front end's editor schema.
+// It is an allow-list tree walk, not a schema: testdata fixtures pin its lists, one accepted document per node and mark and one refused document per rule.
 package content
 
 import (

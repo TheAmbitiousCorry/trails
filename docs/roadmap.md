@@ -7,9 +7,12 @@ Intent, ordered. Present truth lives in `docs/context/`; live work lives in `doc
 ## Next
 
 - **A second machine or person can clone a repo and have its map**: today the map lives only in one Trail home directory, so a clone has no signs and a reviewer cannot see entry changes beside the code they describe. Why next: the walking skeleton proves the map on one machine first; this is the first thing that hurts after it works. Domains: storage, entries, principles. Appetite: large.
-- **A human can edit an entry in place from the sign page**: the skeleton ships read-only pages, so every correction goes through an agent or the database. Why next: the provisional queue and gap queue are useless without a way to act on them in the browser. Domains: web_ui, entries. Appetite: large.
+- **A human can act on the map from the browser**: edit an entry in place, confirm or delete a provisional one, fill, merge or dismiss a gap, describe or merge a tag, resolve a conflicting pair, restore a version. The skeleton ships read-only pages, so every correction goes through an agent or the database, and the human write and confirm paths in the server have no caller. Why next: the queues are lists nobody can act on. Domains: web_ui, entries, trail. Appetite: large.
 
 ## Later
+
+- **An agent can attach a screenshot or diagram to a module page**: the `render` kind validates but nothing stores or shows an image, and there is no media directory. What would promote it: the first UI project walked with Trails. Domains: entries, storage, web_ui. Appetite: small.
+- **The measurement shows whether the map beats grep**: two runs against MyDot were correct both ways and cheaper with Trails, but the tasks named their modules so the plain session guessed the spec filenames. What would promote it: a run on a task that does not name its modules, with the stale front-door routing in play. Domains: none, measurement. Appetite: small.
 
 - **Reading around the map opens a gap where the map was thin**: three or more native reads under unanchored paths after a look should open a gap at that sign, so the map learns where agents bypass it. What would promote it: off-trail rows clustering under one sign in the trail view. Domains: trail, adapters. Appetite: small.
 

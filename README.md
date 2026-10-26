@@ -6,7 +6,7 @@ Trails works with any agent that speaks MCP. The repo holds three things:
 
 - `server/`: the Go binary. One SQLite database per project, the MCP endpoint, the recorder, two hook endpoints, and the embedded web UI.
 - `protocol/PROTOCOL.md`: the walking protocol, the single source every adapter embeds.
-- `adapters/`: wiring for Claude Code, Codex, Gemini CLI, Cursor, and a generic MCP client. Each is an instructions snippet, an MCP config entry, and, once step 10 of the plan lands, hook wiring for the off-trail signpost and the stop check.
+- `adapters/`: wiring for Claude Code, Codex, Gemini CLI, Cursor, and a generic MCP client. Each is an instructions snippet, an MCP config entry, and hook wiring for the off-trail signpost and the stop check, built on three shared shell scripts.
 
 What the system does is specified in `docs/context/`; start at [the index](docs/context/index.md). Live work is in `docs/plans/`. Intent is in `docs/roadmap.md`.
 
@@ -52,7 +52,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 ## Status
 
-The walking skeleton is in progress. Steps 1 to 8 of 12 are done: the full agent-facing server with eight MCP tools, anchors, search, the write rules and the sweep. Hooks, the first real run and the web pages remain. See `docs/plans/walking-skeleton.md`.
+The walking skeleton is complete: the server with eight MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and read-only browser pages for the map, signs, session routes and queues. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
 
 ## License
 

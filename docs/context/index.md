@@ -11,9 +11,9 @@ Core
 4. [Trail](./core/trail.md)
    > Sessions, events, gaps, and the heat and route views computed from them.
 5. [MCP](./core/mcp.md)
-   > The only agent interface: seven tools, their inputs, responses, and refusals.
+   > The only agent interface: eight tools, their inputs, responses, and refusals.
 6. [Web UI](./core/web_ui.md)
-   > The human interface: map, module page, trail view, gap queue, in-place editing.
+   > The read-only human interface: map, sign and entry pages, session trails, queues, tags, rejections.
 7. [Storage](./core/storage.md)
    > SQLite schema outline, FTS5 search, process layout, embedding.
 8. [Adapters](./core/adapters.md)

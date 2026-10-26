@@ -180,13 +180,12 @@ input_schema: {
       "type": "string"
     },
     "task_type": {
-      "description": "kind of task, for example report, deploy, billing, bugfix",
+      "description": "kind of task, for example report, deploy, billing, bugfix; optional",
       "type": "string"
     }
   },
   "required": [
-    "task",
-    "task_type"
+    "task"
   ],
   "type": "object"
 }

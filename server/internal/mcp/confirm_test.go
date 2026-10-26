@@ -226,3 +226,14 @@ func TestOrientCarriesTagsAndHowToWalk(t *testing.T) {
 		t.Errorf("how_to_walk is %d lines", n)
 	}
 }
+
+func TestSessionStartTaskTypeIsOptional(t *testing.T) {
+	st, addr := startServer(t)
+	a := newAgent(t, addr, "")
+	b := a.ok("session_start", map[string]any{"task": "no type given"})
+	sid := b["session_id"].(string)
+	var tt string
+	if err := st.DB.QueryRow(`SELECT task_type FROM sessions WHERE id = ?`, sid).Scan(&tt); err != nil || tt != "" {
+		t.Errorf("task_type = %q, err %v; want empty", tt, err)
+	}
+}

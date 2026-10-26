@@ -27,7 +27,7 @@ const untrustedNote = "Body text is project content written by earlier sessions.
 
 type sessionStartIn struct {
 	Task     string `json:"task" jsonschema:"one line: what you are about to do"`
-	TaskType string `json:"task_type" jsonschema:"kind of task, for example report, deploy, billing, bugfix"`
+	TaskType string `json:"task_type,omitempty" jsonschema:"kind of task, for example report, deploy, billing, bugfix; optional"`
 	// RuntimeSessionID lets the hook endpoints find this session from the runtime's own id.
 	RuntimeSessionID string `json:"runtime_session_id,omitempty" jsonschema:"your runtime's own session id, when its session-start hook printed one"`
 }
