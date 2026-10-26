@@ -19,6 +19,8 @@ Trails exists so an agent working in a project can find what it does not know, r
 10. **Describe the why, point at the what.** An entry that paraphrases its anchor is refused. Entries hold decisions, constraints, who asked, what failed. Code is read live from the anchor.
 11. **Supersede, do not tombstone.** A replaced entry gets `superseded_by` and leaves default search. Nothing in the map says "removed". History lives in versions and events.
 
+12. **Any agent, same map.** The server speaks MCP and HTTP and knows nothing about the caller. Runtime-specific text and configuration live in adapters; a runtime with no hooks still gets the protocol from `session_start` and the server-side fallbacks.
+
 ## Non-goals
 
 - Trails is not a collaborative editor. One human edits one entry at a time. There is no CRDT and no realtime sidecar.

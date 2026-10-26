@@ -16,3 +16,5 @@ Core
    > The human interface: map, module page, trail view, gap queue, in-place editing.
 7. [Storage](./core/storage.md)
    > SQLite schema outline, FTS5 search, process layout, embedding.
+8. [Adapters](./core/adapters.md)
+   > Agent neutrality: what the server offers every runtime, the two hook endpoints, what an adapter contains.

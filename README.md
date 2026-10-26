@@ -2,11 +2,11 @@
 
 Trails is a project wiki that AI agents walk one sign at a time and humans read in a browser. An agent reaches it only through its MCP server, every call is logged, and the browser shows the map, the route each session took, and the gaps it found.
 
-The repo holds three things:
+Trails works with any agent that speaks MCP. The repo holds three things:
 
-- `server/`: the Go binary. One SQLite database per project, the MCP endpoint, the recorder, and the embedded web UI.
-- `skills/trails/`: the Claude Code skill that teaches an agent the walking protocol.
-- `mods/`: the Claude Code hooks, the off-trail signpost on native file reads and the Stop hook that holds a session open until its gaps are resolved. They land in step 10 of the walking skeleton and the directory does not exist yet.
+- `server/`: the Go binary. One SQLite database per project, the MCP endpoint, the recorder, two hook endpoints, and the embedded web UI.
+- `protocol/PROTOCOL.md`: the walking protocol, the single source every adapter embeds.
+- `adapters/`: wiring for Claude Code, Codex, Gemini CLI, Cursor, and a generic MCP client. Each is an instructions snippet, an MCP config entry, and, once step 10 of the plan lands, hook wiring for the off-trail signpost and the stop check.
 
 What the system does is specified in `docs/context/`; start at [the index](docs/context/index.md). Live work is in `docs/plans/`. Intent is in `docs/roadmap.md`.
 
@@ -30,7 +30,7 @@ cd server && go test ./...
 
 ## Connect an agent
 
-Add the server to a Claude Code MCP config:
+Pick your runtime under `adapters/` and follow its README: paste the protocol section into the project's instructions file and add the MCP entry. For Claude Code that is:
 
 ```json
 {
@@ -40,7 +40,7 @@ Add the server to a Claude Code MCP config:
 }
 ```
 
-Then install the skill and hooks from `skills/` and `mods/` into your Claude Code plugins. The skill tells the agent to start every task with `session_start`, search before it greps, and look at a module's sign before editing it.
+An agent with only the MCP entry still gets the protocol: the `session_start` response carries it.
 
 ## Flags
 
