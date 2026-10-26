@@ -21,7 +21,8 @@ func Handler(st *store.Store, addr string) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", guard(addr, mcpHandler))
-	// The JSON API for the front end arrives in a later step; the guard is already in front of it.
+	registerAPI(mux, st, addr)
+	// The rest of /api is for the front end, which arrives in a later step; the guard is already in front of it.
 	mux.Handle("/api/", guard(addr, http.NotFoundHandler()))
 	return mux
 }

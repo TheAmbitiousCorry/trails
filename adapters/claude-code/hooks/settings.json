@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-off-trail.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_BLOCK_FORMAT=block \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-stop.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

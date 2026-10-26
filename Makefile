@@ -9,6 +9,7 @@ run:
 test:
 	cd server && go test ./...
 	./scripts/check-adapters.sh
+	./scripts/test-hooks.sh
 
 # Frontend arrives in a later step; build stays Go-only until then.
 frontend:

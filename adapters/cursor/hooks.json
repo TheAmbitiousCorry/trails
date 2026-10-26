@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "TRAILS_CONTEXT_FORMAT=cursor TRAILS_SESSION_FIELD=conversation_id .trail/hooks/trails-session-start.sh"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "TRAILS_CONTEXT_FORMAT=cursor TRAILS_SESSION_FIELD=conversation_id .trail/hooks/trails-off-trail.sh",
+        "matcher": "Read"
+      }
+    ],
+    "stop": [
+      {
+        "command": "TRAILS_BLOCK_FORMAT=cursor TRAILS_SESSION_FIELD=conversation_id .trail/hooks/trails-stop.sh"
+      }
+    ]
+  }
+}

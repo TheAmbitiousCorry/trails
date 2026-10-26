@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$(git rev-parse --show-toplevel)\"/.trail/hooks/trails-session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_BLOCK_FORMAT=block \"$(git rev-parse --show-toplevel)\"/.trail/hooks/trails-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

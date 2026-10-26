@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json TRAILS_SESSION_ENV=GEMINI_SESSION_ID \"$GEMINI_PROJECT_DIR/.trail/hooks/trails-session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "read_.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json TRAILS_EVENT=AfterTool TRAILS_SESSION_ENV=GEMINI_SESSION_ID \"$GEMINI_PROJECT_DIR/.trail/hooks/trails-off-trail.sh\""
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_BLOCK_FORMAT=deny TRAILS_SESSION_ENV=GEMINI_SESSION_ID \"$GEMINI_PROJECT_DIR/.trail/hooks/trails-stop.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
