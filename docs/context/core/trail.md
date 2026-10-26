@@ -21,7 +21,7 @@ One row per call, append-only:
 |---|---|
 | `session_id` | Minted by the recorder before the handler runs, so the `session_start` event carries the id its session row is created with. |
 | `at` | timestamp |
-| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`. The orient view is the response to `session_start`, not a tool of its own. |
+| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`, and `sweep` for the expiry pass, whose rows carry result `dormant` or `deleted` and whose dormancy time dates the further 30 days before deletion. The orient view is the response to `session_start`, not a tool of its own. |
 | `target` | sign or entry id, or query text for search |
 | `depth` | `summary` or `full` for reads |
 | `result` | `ok`, `refused:<rule>`, `miss` |
@@ -37,7 +37,7 @@ A gap is opened by the server when:
 - a `look` is followed within the session by three or more `off_trail` reads under paths no entry anchors to
 - a `write` lands with no `read` of its parent sign in the session
 
-The gap row holds the sign the reader was standing at (the target of the session's latest successful `look`, or the home sign when that target was an entry), the query or paths, and the session, through which the task is reachable. A gap is resolved by `resolve_gap` with one of:
+The gap row holds the sign the reader was standing at (the target of the session's latest successful `look`, or the home sign when that target was an entry), the query or paths, and the session, through which the task is reachable. A gap is resolved through `resolve_gap` by the session that opened it, or by a human in the browser, with one of:
 
 - `fill`: a new entry id, written in the same call or just before
 - `merge`: an existing entry id; the query is added to that entry's `read_when` aliases

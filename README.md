@@ -52,7 +52,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 ## Status
 
-The walking skeleton is in progress. Step 1 of 12 is done: the store, the recorder, and the `session_start` and `read` tools. See `docs/plans/walking-skeleton.md` for the rest.
+The walking skeleton is in progress. Steps 1 to 8 of 12 are done: the full agent-facing server with eight MCP tools, anchors, search, the write rules and the sweep. Hooks, the first real run and the web pages remain. See `docs/plans/walking-skeleton.md`.
 
 ## License
 
