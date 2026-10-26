@@ -4,7 +4,7 @@ ADDR ?= 127.0.0.1:7777
 REPO ?= $(CURDIR)
 
 run:
-	cd server && go run ./cmd/trail --repo $(REPO) --addr $(ADDR)
+	cd server && go run ./cmd/trails --repo $(REPO) --addr $(ADDR)
 
 test:
 	cd server && go test ./...
@@ -14,4 +14,4 @@ frontend:
 	@echo "frontend: not built yet"
 
 build: frontend
-	cd server && go build -o ../bin/trail ./cmd/trail
+	cd server && go build -o ../bin/trails ./cmd/trails

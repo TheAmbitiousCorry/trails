@@ -17,7 +17,7 @@ You need Go 1.25 or newer. The web UI needs Node 22 or newer when you build it.
 To start the server for the repo in your current directory:
 
 ```bash
-cd server && go run ./cmd/trail --repo /path/to/your/project
+cd server && go run ./cmd/trails --repo /path/to/your/project
 ```
 
 The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Commit the id file; the database stays on your machine.

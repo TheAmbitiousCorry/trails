@@ -19,7 +19,7 @@ Full index: [docs/context/index.md](docs/context/index.md). Live plans: `docs/pl
 ## Layout
 
 ```
-server/      Go module: cmd/trail (binary), internal/{store,entries,signs,trail,mcp,web,anchor}
+server/      Go module: cmd/trails (binary), internal/{store,entries,signs,trail,mcp,web,anchor}
 frontend/    Vue 3 + Tiptap, built into server/internal/web/dist
 skills/      Claude Code skill that teaches agents the walking protocol
 mods/        Claude Code hooks: off-trail signpost, Stop hook
@@ -31,5 +31,5 @@ docs/        context (specs), plans (live work only), roadmap
 ```bash
 make run        # server on 127.0.0.1:7777 for the repo in the current directory, database in ~/.trail/<id>/
 make test       # go test ./... in server/
-make build      # frontend build + embed + go build -> bin/trail
+make build      # frontend build + embed + go build -> bin/trails
 ```

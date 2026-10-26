@@ -44,6 +44,6 @@ func run(repo, addr, home string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("trail: project %s, db %s, listening on http://%s\n", st.ProjectID, st.Path, ln.Addr())
+	fmt.Printf("trails: project %s, db %s, listening on http://%s\n", st.ProjectID, st.Path, ln.Addr())
 	return http.Serve(ln, mcp.Handler(st, ln.Addr().String()))
 }

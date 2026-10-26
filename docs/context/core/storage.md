@@ -28,7 +28,7 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 
 ## Process
 
-One Go binary, `trail`, serving on a local port: the Vue build embedded at `/`, the MCP at `/mcp`, a JSON API at `/api` for the front end. There is no authentication: Trails is a single-user local tool and nothing from any permission system reaches it. The one check is that requests whose Host or Origin is not the local port are refused, so a web page open in the browser on another site cannot drive the server. The MCP transport is stateless; the session is identified by the `session_id` argument, never by transport state. Anchor re-checks run on read and on a scheduled sweep every six hours. There is no second process.
+One Go binary, `trails`, serving on a local port: the Vue build embedded at `/`, the MCP at `/mcp`, a JSON API at `/api` for the front end. There is no authentication: Trails is a single-user local tool and nothing from any permission system reaches it. The one check is that requests whose Host or Origin is not the local port are refused, so a web page open in the browser on another site cannot drive the server. The MCP transport is stateless; the session is identified by the `session_id` argument, never by transport state. Anchor re-checks run on read and on a scheduled sweep every six hours. There is no second process.
 
 ## Content schema
 
