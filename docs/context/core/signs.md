@@ -23,13 +23,13 @@ An edge is one row per child showing:
 - the child's title
 - the child's `read_when` line
 - two or three scent keywords, generated from the child's tags and the top terms of its body, so a reader can pick a branch without opening it
-- the child's tier
-- for a child sign: its child count and stale count
+- the child's tier; for a child sign, the tier and `read_when` of its own summary entry, empty when it has none
+- for a child sign: its child count (signs and entries directly under it) and stale count (stale entries anywhere below it)
 - for an entry: its kind and word count
 
 ## Fan-out cap
 
-A sign holds at most seven edges by default. A write that would create an eighth is refused with `split this fork`, and the response proposes a grouping of the existing edges from their tags. The cap is a project setting. Entries grouped by kind under a module count as one edge per kind group when the group has more than one member.
+A sign holds at most seven edges by default. A write that would create an eighth is refused with `split this fork`, and the response proposes a grouping of the existing edges from their tags. The cap is a project setting. Entries under a sign count as one edge per kind present, so a sign's edge count is its child signs plus its distinct entry kinds.
 
 ## Orient and local view
 
