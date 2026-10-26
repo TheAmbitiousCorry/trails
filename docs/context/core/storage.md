@@ -10,9 +10,9 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 ## Tables
 
 - `signs(id, parent_id, title, position)`: the tree's structure is stored; a sign's summary, edges and scent are computed from its children at read time and never stored
-- `entries(id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, distinct_reason, decided_by, decided_at, created_at, updated_at)`
+- `entries(id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, tier_before_stale, promoted_by, superseded_by, distinct_reason, decided_by, decided_at, created_at, updated_at)`; `superseded_by` is a denormalised copy of the `supersedes` link for cheap filtering
 - `entry_aliases(entry_id, read_when)` for merged gap queries
-- `anchors(id, entry_id, type, path_or_url, range_start, range_end, hash, fetched_at, last_checked_at, ok)`
+- `anchors(id, entry_id, type, path_or_url, range_start, range_end, hash, fetched_at, last_checked_at, ok, extra)`
 - `links(from_id, to_id, relation)` with relation in `requires`, `see_also`, `supersedes`, `conflicts_with`; symmetric relations are stored once and queried both ways
 - `versions(id, entry_id, body_json, title, read_when, anchors_json, actor, created_at)`
 - `sessions(id, actor, task, task_type, started_at, ended_at, ended_by)`

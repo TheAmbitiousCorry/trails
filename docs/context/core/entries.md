@@ -49,7 +49,9 @@ Caps are per-kind settings in the project config. The defaults above hold until 
 
 ## Anchors
 
-An anchor is the checkable claim behind an entry. The server re-checks anchors on read and on a nightly sweep.
+An anchor is the checkable claim behind an entry. The server re-checks an entry's anchors when it is read and on a sweep every six hours. The tier column is stored and rewritten by those checks, so a sign's stale count reflects an entry only after it has been read or swept.
+
+Column use per type: `file`, `range` and `dir` keep the path in `path_or_url` and the sha256 in `hash`; `commit` and `produced_by` keep the sha in `hash`, and `produced_by` keeps the command in `path_or_url`; `url` keeps the url in `path_or_url`, the body hash in `hash` and the fetch time in `fetched_at`; `transcript` keeps `provider:id` in `extra`.
 
 | Type | Fields | Stale when |
 |---|---|---|
@@ -61,7 +63,7 @@ An anchor is the checkable claim behind an entry. The server re-checks anchors o
 | `transcript` | provider, id | never automatically; a human confirms |
 | `produced_by` | command, commit sha | commit is not HEAD (renders go stale on every commit until re-produced) |
 
-A `summary` whose children are all verified and whose own anchors match is verified. A summary also carries the stale count of its children.
+A `summary` whose own anchors match keeps its tier whatever its children do; the sign it sits under carries the count of stale entries anywhere below it, see [signs](./signs.md#edges).
 
 ## Trust tiers
 
@@ -69,7 +71,7 @@ A `summary` whose children are all verified and whose own anchors match is verif
 |---|---|---|
 | `provisional` | Written by an agent | Ranked below verified in search; labelled in every response |
 | `verified` | Written by a human, confirmed by a human, or confirmed by two distinct agent sessions that read it at `full` and called `confirm`. Agent promotion sets `promoted_by: agents`, visible in the browser. A session cannot confirm an entry it wrote. | Default rank |
-| `stale` | Any anchor fails its check | Ranked below provisional; response says to read the anchor, not the body |
+| `stale` | Any anchor fails its check; the tier it had before is kept in `tier_before_stale` and restored when every anchor passes again | Ranked below provisional; `read` returns tier `stale`, an empty body and a `notice` listing the failed anchors by type and path |
 | `dormant` | Superseded, or provisional and unread for 30 days | Out of default search and off signs; reachable by id and in the browser |
 
 A dormant provisional entry is deleted after a further 30 days. A dormant superseded entry is kept.
