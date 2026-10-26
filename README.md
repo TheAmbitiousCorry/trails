@@ -53,3 +53,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 ## Status
 
 The walking skeleton is in progress. Step 1 of 12 is done: the store, the recorder, and the `session_start` and `read` tools. See `docs/plans/walking-skeleton.md` for the rest.
+
+## License
+
+AGPL 3.0. See `LICENSE`.
