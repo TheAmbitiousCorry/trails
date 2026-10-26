@@ -33,7 +33,7 @@ Every relationship between entries is a typed edge in one table; backlinks are a
 | `supersedes` | directed | The superseded entry leaves default search and carries the link back |
 | `conflicts_with` | symmetric | Set by the server when an agent write collides with a verified entry; shown in the browser's provisional queue |
 
-A `read` also lists the entry's backlinks, every entry that links to it by any relation, as edge lines. Related is not required: only `requires` brings a body, because that relation is the author's declaration that the entry cannot be understood without it.
+A `read` also lists the entry's backlinks, every entry that links to it by any relation, as edge lines; a symmetric link therefore appears under both `related` and `backlinks`. Related is not required: only `requires` brings a body, because that relation is the author's declaration that the entry cannot be understood without it.
 
 ## Kinds and caps
 
@@ -85,10 +85,10 @@ Every write, agent or human, passes these in order. The first failure returns th
 3. **Anchor.** Anchor rule for the kind holds and every anchor resolves right now.
 4. **Duplicate.** The title, `read_when` and body are searched. A hit above the duplicate threshold returns the hit and three options: `merge` (add this `read_when` as an alias on the hit), `replace` (supersede the hit), `distinct` (write anyway, with a reason stored on the entry).
 5. **Paraphrase.** For `summary`, token overlap between body and anchored content above the paraphrase threshold is refused: `describe the why, point at the what`.
-6. **Fan-out.** The parent sign stays within its edge cap. The cap is owned by the signs package; the write path asks it, see [signs](./signs.md#fan-out-cap).
+6. **Fan-out.** The parent sign stays within its edge cap. The cap is owned by the signs package and the write path asks it only when the entry's kind is new under that parent, since kinds are the edges, see [signs](./signs.md#fan-out-cap).
 7. **Reachability.** The entry has exactly one parent sign and the parent is reachable from the root. An entry never hangs under two signs; a second axis is a tag, see [signs](./signs.md#virtual-signs).
 
-An agent write to an entry that is `verified` is refused and offered as a new provisional entry with `conflicts_with` set. A human resolves the pair in the browser.
+An update may change title, `read_when`, body, tags, anchors and links; it replaces the entry's `requires` and `see_also` links with the request's lists. Kind and parent are immutable, rule `immutable`. An agent write to an entry that is `verified` is refused and offered as a new provisional entry with `conflicts_with` set. A human resolves the pair in the browser.
 
 ## Versions
 
