@@ -469,7 +469,7 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	return o, err
 }
 
-// serveEntry refreshes the entry's anchors and returns it, with an empty body and a notice when it is stale.
+// serveEntry refreshes the entry's anchors and returns it; a stale entry keeps its body and gains a notice naming the failed anchors, because withholding it would make the reader guess instead.
 func serveEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, id, depth string) (entryOut, error) {
 	var out entryOut
 	failed, err := anchor.RefreshEntry(ctx, db, checker, id)
@@ -490,8 +490,7 @@ func serveEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, id, dep
 		for i, a := range failed {
 			labels[i] = a.Label()
 		}
-		out.Notice = "Stale, body withheld. Read the anchor, not this entry. Failed anchors: " + strings.Join(labels, "; ")
-		return out, nil
+		out.Notice = "Stale: the anchored source changed after this was written. Check it against the anchors before relying on it. Failed anchors: " + strings.Join(labels, "; ")
 	}
 	md, err := markdown.ToMarkdown(json.RawMessage(body))
 	if err != nil {

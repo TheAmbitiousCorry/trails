@@ -12,7 +12,7 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | Block the stop | `{"decision":"block","reason":...}` or exit 2 | same | `{"decision":"deny","reason":...}` or exit 2 | `{"followup_message":...}`, a follow-up turn, capped by `loop_limit` |
 | Re-entry visible | `stop_hook_active` | `stop_hook_active` | `stop_hook_active` | `loop_count` |
 | Runtime session id | stdin `session_id` | stdin `session_id` | stdin `session_id`, env `GEMINI_SESSION_ID` | stdin `conversation_id` |
-| Path field on read | unverified | n/a | unverified, tool param is `file_path` | unverified |
+| Path field on read | verified: Read `tool_input.file_path`, Grep and Glob `tool_input.path` | n/a | unverified, tool param is `file_path` | unverified |
 
 Known limits: Codex gets the stop check only. Gemini CLI's docs carry a notice that it was replaced by Antigravity CLI in June 2026; check the target before wiring. Cursor's stop hook cannot block, it schedules a follow-up turn, which the server's `blocks` counter still bounds.
 

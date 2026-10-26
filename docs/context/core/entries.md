@@ -71,7 +71,7 @@ A `summary` whose own anchors match keeps its tier whatever its children do; the
 |---|---|---|
 | `provisional` | Written by an agent | Ranked below verified in search; labelled in every response |
 | `verified` | Written by a human, confirmed by a human, or confirmed by two distinct agent sessions that read it at `full` and called `confirm`. Agent promotion sets `promoted_by: agents`, visible in the browser. A session cannot confirm an entry it wrote. | Default rank |
-| `stale` | Any anchor fails its check; the tier it had before is kept in `tier_before_stale` and restored when every anchor passes again | Ranked below provisional; `read` returns tier `stale`, an empty body and a `notice` listing the failed anchors by type and path |
+| `stale` | Any anchor fails its check, including an uncommitted edit to an anchored file; the tier it had before is kept in `tier_before_stale` and restored when every anchor passes again | Ranked below provisional; `read` returns the body with tier `stale` and a `notice` listing the failed anchors by type and path, so the reader can check the source instead of guessing |
 | `dormant` | Superseded, or provisional and unread for 30 days | Out of default search and off signs; reachable by id and in the browser |
 
 A dormant provisional entry is deleted after a further 30 days. A dormant superseded entry is kept.

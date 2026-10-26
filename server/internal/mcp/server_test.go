@@ -104,7 +104,7 @@ func TestVerticalThread(t *testing.T) {
 		t.Errorf("depth 4 not refused: %v", err)
 	}
 
-	// Anchor the seeded entry to a file, edit the file, and the next read serves it stale with no body.
+	// Anchor the seeded entry to a file, edit the file, and the next read serves it stale with its body and a notice.
 	file := filepath.Join(st.Repo, "notes.txt")
 	if err := os.WriteFile(file, []byte("original\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestVerticalThread(t *testing.T) {
 	}
 	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "read", Arguments: map[string]any{"session_id": sid, "entry_id": "trail", "depth": "full"}})
 	stale := structured(t, res, err)
-	if stale["tier"] != "stale" || stale["untrusted"].(map[string]any)["body_markdown"] != "" {
+	if stale["tier"] != "stale" || stale["untrusted"].(map[string]any)["body_markdown"] == "" {
 		t.Errorf("stale read = %v", stale)
 	}
 	if n, _ := stale["notice"].(string); !strings.Contains(n, "notes.txt") {
