@@ -3,12 +3,14 @@ package mcp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
@@ -182,7 +184,7 @@ func readEntry(ctx context.Context, db *sql.DB, in readIn) (*sdk.CallToolResult,
 	if err != nil {
 		return nil, out, err
 	}
-	md, err := toMarkdown(body)
+	md, err := markdown.ToMarkdown(json.RawMessage(body))
 	if err != nil {
 		return nil, out, err
 	}
