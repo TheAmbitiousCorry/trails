@@ -88,6 +88,19 @@ func TestVerticalThread(t *testing.T) {
 		t.Errorf("lines = %v", read["lines"])
 	}
 
+	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "look", Arguments: map[string]any{"session_id": sid, "sign_id": "root"}})
+	look := structured(t, res, err)
+	if edges, _ := look["edges"].([]any); len(edges) != 1 {
+		t.Errorf("look edges = %v", look["edges"])
+	}
+	if look["lines"].(float64) < 1 {
+		t.Errorf("look lines = %v", look["lines"])
+	}
+	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "look", Arguments: map[string]any{"session_id": sid, "sign_id": "root", "depth": 4}})
+	if err != nil || !res.IsError {
+		t.Errorf("depth 4 not refused: %v", err)
+	}
+
 	rows, err := st.DB.Query(`SELECT tool, session_id, result FROM events ORDER BY id`)
 	if err != nil {
 		t.Fatal(err)
@@ -97,12 +110,12 @@ func TestVerticalThread(t *testing.T) {
 	for rows.Next() {
 		var tool, s, result string
 		rows.Scan(&tool, &s, &result)
-		if s != sid || result != "ok" {
+		if s != sid || (result != "ok" && result != "refused:depth_cap") {
 			t.Errorf("event %s: session %q result %q", tool, s, result)
 		}
 		tools = append(tools, tool)
 	}
-	if strings.Join(tools, ",") != "session_start,read" {
+	if strings.Join(tools, ",") != "session_start,read,look,look" {
 		t.Errorf("events = %v", tools)
 	}
 
@@ -130,7 +143,7 @@ func TestVerticalThread(t *testing.T) {
 
 	var n int
 	st.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n)
-	if n != 2 {
-		t.Errorf("events = %d, want 2", n)
+	if n != 4 {
+		t.Errorf("events = %d, want 4", n)
 	}
 }
