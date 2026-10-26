@@ -4,6 +4,7 @@ package trail
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -35,6 +36,28 @@ type Recorder struct{ DB *sql.DB }
 
 type ctxKey struct{}
 
+type outcomeKey struct{}
+
+// outcome lets a handler change what the recorder logs for a call that returned no error.
+type outcome struct {
+	result string
+	shown  []string
+}
+
+// SetResult replaces the logged result of a successful call, for example with "miss".
+func SetResult(ctx context.Context, result string) {
+	if o, ok := ctx.Value(outcomeKey{}).(*outcome); ok {
+		o.result = result
+	}
+}
+
+// SetShown records the ids a call returned in the event's shown column.
+func SetShown(ctx context.Context, ids []string) {
+	if o, ok := ctx.Value(outcomeKey{}).(*outcome); ok {
+		o.shown = ids
+	}
+}
+
 // SessionID is the id the recorder logged this call under; session_start must create its session row with it.
 func SessionID(ctx context.Context) string {
 	s, _ := ctx.Value(ctxKey{}).(string)
@@ -58,16 +81,27 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 		eventID, _ := res.LastInsertId()
 
 		result := "error"
+		oc := &outcome{}
 		defer func() {
+			shown := "[]"
+			if oc.shown != nil {
+				if b, err := json.Marshal(oc.shown); err == nil {
+					shown = string(b)
+				}
+			}
 			// Detached from ctx so a cancelled request still closes its event.
-			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ? WHERE id = ?`, result, eventID)
+			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ? WHERE id = ?`, result, shown, eventID)
 		}()
 
-		out, o, herr := h(context.WithValue(ctx, ctxKey{}, c.SessionID), req, in)
+		hctx := context.WithValue(context.WithValue(ctx, ctxKey{}, c.SessionID), outcomeKey{}, oc)
+		out, o, herr := h(hctx, req, in)
 		var ref *Refusal
 		switch {
 		case herr == nil:
 			result = "ok"
+			if oc.result != "" {
+				result = oc.result
+			}
 		case errors.As(herr, &ref):
 			result = "refused:" + ref.Rule
 		default:

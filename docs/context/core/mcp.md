@@ -11,7 +11,7 @@ Responses are plain JSON with a `lines` field stating the response size in lines
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
-| `session_start` | task (string), task_type | session_id, the orient view | task empty |
+| `session_start` | task (string), task_type, runtime_session_id (optional, from the session-start hook) | session_id, the orient view | task empty |
 | `look` | sign_id or entry_id, or tag and/or kind with optional `within` sign_id; depth (1 to 3); task_type | the local view described in [signs](./signs.md#orient-and-local-view), or a [virtual sign](./signs.md#virtual-signs) for a tag or kind query. The view nests at depth above 1, so its output schema is declared open rather than typed | `depth_cap` above 3; `look_target` when neither a sign, entry, tag nor kind is given; `unknown_sign`, `unknown_entry` |
 | `search` | query, task_type, limit (max 10) | up to limit entries with their sign paths and tiers; a `miss` flag when nothing clears the threshold | |
 | `read` | entry_id, depth (`summary`, the first paragraph, or `full`, the whole body; default `summary`) | the entry; at depth `full`, preceded in full by every prerequisite not yet read at `full` in this session, with already-read prerequisites listed by id under `already_read`; each with its rendered example snippet pulled live from the anchor; then its `see_also` links and its backlinks as edge lines; stale entries return tier `stale`, an empty body and a top-level `notice` string listing the failed anchors | |

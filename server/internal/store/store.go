@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"embed"
@@ -15,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 
 	_ "modernc.org/sqlite"
 )
@@ -52,6 +55,10 @@ func Open(home, repo string) (*Store, error) {
 		return nil, err
 	}
 	if err := s.seed(filepath.Base(repo)); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := search.Reindex(context.Background(), db); err != nil {
 		db.Close()
 		return nil, err
 	}

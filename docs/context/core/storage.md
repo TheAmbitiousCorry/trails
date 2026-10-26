@@ -15,7 +15,7 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 - `anchors(id, entry_id, type, path_or_url, range_start, range_end, hash, fetched_at, last_checked_at, ok, extra)`
 - `links(from_id, to_id, relation)` with relation in `requires`, `see_also`, `supersedes`, `conflicts_with`; symmetric relations are stored once and queried both ways
 - `versions(id, entry_id, body_json, title, read_when, anchors_json, actor, created_at)`
-- `sessions(id, actor, task, task_type, started_at, ended_at, ended_by)`
+- `sessions(id, actor, task, task_type, runtime_session_id, blocks, started_at, ended_at, ended_by)`
 - `events(id, session_id, at, tool, target, depth, result, shown_json)`
 - `gaps(id, sign_id, session_id, query, paths_json, state, resolution, target_id, reason, opened_at, resolved_at)`
 - `tags(id, description, defined)`: the tag vocabulary; a tag written before it is defined has `defined = 0` and is absent from orient until a human describes it
