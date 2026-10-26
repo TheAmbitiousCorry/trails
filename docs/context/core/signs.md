@@ -35,7 +35,7 @@ A sign holds at most seven edges by default. A write that would create an eighth
 
 - **Orient.** The session's first call returns the root sign with sizes: edge count, total entries, stale count, open gaps, and the task-type tags present. It is the trailhead board. It is at most 40 lines.
 - **Local view.** Any `look` call returns one sign: its summary, its parent's title, and its edges. Depth is one. A `depth` parameter up to three is allowed and the response says how many lines it cost.
-- **Search** returns matching entries each with the path of sign titles above it, so a jump lands with its route filled in. Results are capped at five by default, ranked verified above provisional above stale.
+- **Search** returns matching entries each with the path of sign titles above it, so a jump lands with its route filled in. Results are capped at five by default and ranked by text match with a tier factor, so at equal text verified beats provisional beats stale.
 
 ## Prerequisites
 
@@ -53,4 +53,4 @@ A virtual sign is never stored. An entry has one home in the tree and appears on
 
 ## Filtering by task type
 
-`orient`, `look` and `search` accept a `task_type`. Edges whose subtree holds no entry with that tag are folded into one line: `n more edges outside <task_type>`.
+`orient` and `look` accept a `task_type`; edges whose subtree holds no entry with that tag are folded into one line: `n more edges outside <task_type>`. `search` takes it as a rank boost for entries carrying the tag, filtering nothing.

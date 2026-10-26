@@ -83,7 +83,7 @@ Every write, agent or human, passes these in order. The first failure returns th
 1. **Schema.** Body validates against the allow-list walker: node and mark types, URL schemes, depth, byte cap.
 2. **Cap.** Word count within the kind's cap. Refusal: `split this`.
 3. **Anchor.** Anchor rule for the kind holds and every anchor resolves right now.
-4. **Duplicate.** The title, `read_when` and body are searched. A hit above the duplicate threshold returns the hit and three options: `merge` (add this `read_when` as an alias on the hit), `replace` (supersede the hit), `distinct` (write anyway, with a reason stored on the entry).
+4. **Duplicate.** The title, `read_when` and body are searched. A hit above the duplicate threshold returns the hit and three options: `merge` (add this `read_when` as an alias on the hit; new entries only), `replace` (supersede the hit, which goes dormant with `superseded_by` set; an agent may not replace a verified hit), `distinct` (write anyway, with a reason stored on the entry).
 5. **Paraphrase.** For `summary`, token overlap between body and anchored content above the paraphrase threshold is refused: `describe the why, point at the what`.
 6. **Fan-out.** The parent sign stays within its edge cap. The cap is owned by the signs package and the write path asks it only when the entry's kind is new under that parent, since kinds are the edges, see [signs](./signs.md#fan-out-cap).
 7. **Reachability.** The entry has exactly one parent sign and the parent is reachable from the root. An entry never hangs under two signs; a second axis is a tag, see [signs](./signs.md#virtual-signs).

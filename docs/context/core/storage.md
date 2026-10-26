@@ -24,7 +24,7 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 
 ## Search
 
-`entries_fts` is an FTS5 table over title (weight A), `read_when` plus aliases (weight A) and plain-text body (weight B), refreshed by one Go function in the single write path. There is no trigger: SQL cannot walk the JSON body. Ranking is bm25 adjusted by tier. The relevance threshold for a miss is a setting.
+`entries_fts` is an FTS5 table (porter unicode61) over title, `read_when` plus aliases, and plain-text body, weighted 2, 2, 1, refreshed inside the write transaction by one Go function. There is no trigger: SQL cannot walk the JSON body. Ranking is bm25 multiplied by a tier factor (verified 1.0, provisional 0.8, stale 0.5); dormant and superseded entries are excluded, and entries tagged with the query's `task_type` get a 1.25 boost. A miss is no hit above `search_threshold` on the raw bm25 score. bm25 gives a term no weight once it appears in half the corpus, so below `search_min_corpus` entries (default 20) any FTS match counts as a hit and the threshold is not applied. The duplicate check compares a hit's score against that hit's score for its own title, `read_when` and first paragraph, so `duplicate_threshold` is a fraction of a perfect match (default 0.8) and does not drift with query length. `paraphrase_threshold` (default 0.5) is the share of the body's three-word shingles found in its anchored files.
 
 ## Process
 
