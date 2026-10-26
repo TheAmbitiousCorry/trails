@@ -1,0 +1,136 @@
+package mcp_test
+
+import (
+	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"strings"
+	"testing"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/TheAmbitiousCorry/trails/internal/mcp"
+	"github.com/TheAmbitiousCorry/trails/internal/store"
+)
+
+func startServer(t *testing.T) (*store.Store, string) {
+	t.Helper()
+	st, err := store.Open(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: mcp.Handler(st, ln.Addr().String())}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	return st, ln.Addr().String()
+}
+
+func structured(t *testing.T, res *sdk.CallToolResult, err error) map[string]any {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+	b, _ := json.Marshal(res.StructuredContent)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestVerticalThread(t *testing.T) {
+	st, addr := startServer(t)
+	ctx := context.Background()
+
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(ctx, &sdk.StreamableClientTransport{
+		Endpoint:   "http://" + addr + "/mcp",
+		HTTPClient: http.DefaultClient,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+
+	res, err := sess.CallTool(ctx, &sdk.CallToolParams{Name: "session_start", Arguments: map[string]any{"task": "write the monthly report", "task_type": "report"}})
+	start := structured(t, res, err)
+	if start["contract"] != float64(1) {
+		t.Errorf("contract = %v", start["contract"])
+	}
+	sid, _ := start["session_id"].(string)
+	if sid == "" {
+		t.Fatal("no session_id")
+	}
+	o := start["orient"].(map[string]any)
+	if o["entry_count"] != float64(1) || o["edge_count"] != float64(1) {
+		t.Errorf("orient = %v", o)
+	}
+
+	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "read", Arguments: map[string]any{"session_id": sid, "entry_id": "trail", "depth": "full"}})
+	read := structured(t, res, err)
+	u, ok := read["untrusted"].(map[string]any)
+	if !ok || !strings.Contains(u["body_markdown"].(string), "Every call an agent makes") {
+		t.Errorf("body not inside untrusted: %v", read)
+	}
+	if _, leaked := read["body_markdown"]; leaked {
+		t.Error("body_markdown outside untrusted")
+	}
+	if read["lines"].(float64) < 1 {
+		t.Errorf("lines = %v", read["lines"])
+	}
+
+	rows, err := st.DB.Query(`SELECT tool, session_id, result FROM events ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var tools []string
+	for rows.Next() {
+		var tool, s, result string
+		rows.Scan(&tool, &s, &result)
+		if s != sid || result != "ok" {
+			t.Errorf("event %s: session %q result %q", tool, s, result)
+		}
+		tools = append(tools, tool)
+	}
+	if strings.Join(tools, ",") != "session_start,read" {
+		t.Errorf("events = %v", tools)
+	}
+
+	// Refused calls must not add events: they never reach the recorder.
+	post := func(h map[string]string) int {
+		req, _ := http.NewRequest("POST", "http://"+addr+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := post(map[string]string{"Origin": "http://evil.example"}); c != http.StatusForbidden {
+		t.Errorf("foreign origin: status %d", c)
+	}
+	if c := post(map[string]string{"Origin": "http://" + addr}); c != http.StatusOK {
+		t.Errorf("own origin: status %d", c)
+	}
+
+	var n int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n)
+	if n != 2 {
+		t.Errorf("events = %d, want 2", n)
+	}
+}
