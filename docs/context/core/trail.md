@@ -27,7 +27,7 @@ One row per call, append-only:
 | `result` | `ok`, `refused:<rule>`, `miss` |
 | `shown` | for search and look: the ids returned; for read: the entry and every prerequisite served with it, each logged as its own read |
 
-`off_trail` events come from a Claude Code hook that forwards native Read and Grep calls with the file path. They are how a bypass of the map becomes visible, and they feed gap detection. When the path is anchored by an entry, the hook's reply names that entry, see [mcp](./mcp.md#teaching-the-protocol).
+`off_trail` events come from a runtime's after-read hook, wired per [adapters](./adapters.md), that forwards native file reads and searches with the path; Codex has no such hook and records none. They are how a bypass of the map becomes visible, and they feed gap detection. When the path is anchored by an entry, the hook's reply names that entry, see [mcp](./mcp.md#teaching-the-protocol).
 
 ## Gaps
 
@@ -43,7 +43,7 @@ The gap row holds the sign the reader was standing at (the target of the session
 - `merge`: an existing entry id; the query is added to that entry's `read_when` aliases
 - `dismiss`: a reason, 200 characters max
 
-`session_end` returns the session's open gaps and refuses to close while any remain. A Claude Code Stop hook refuses to end a turn whose Trail session is open, at most twice; the third attempt ends the session with `ended_by: forced` and its gaps go to the browser queue. When the server is unreachable the hook passes through. A session may dismiss at most three gaps; the fourth dismissal is refused and the gap stays open for a human.
+`session_end` returns the session's open gaps and refuses to close while any remain. The runtime's stop hook refuses to end a turn whose Trails session is open, at most twice; the third attempt ends the session with `ended_by: forced` and its gaps stay open for the browser's gap queue. When the server is unreachable the hook passes through. A session may dismiss at most three gaps; the fourth dismissal is refused and the gap stays open for a human.
 
 Open gaps are capped at twenty per project. When the cap is reached, new misses are still logged as events but no gap row opens, and `orient` says so.
 

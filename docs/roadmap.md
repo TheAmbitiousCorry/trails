@@ -11,5 +11,7 @@ Intent, ordered. Present truth lives in `docs/context/`; live work lives in `doc
 
 ## Later
 
+- **Reading around the map opens a gap where the map was thin**: three or more native reads under unanchored paths after a look should open a gap at that sign, so the map learns where agents bypass it. What would promote it: off-trail rows clustering under one sign in the trail view. Domains: trail, adapters. Appetite: small.
+
 - **Gaps left by one session are filled by the next session that needs the same area**: the end-of-session hard gate depends on agents calling `session_end`; if step 9 of the walking skeleton shows poor compliance, gating `orient` on inherited gaps is the fallback. What would promote it: a forced-end rate above a quarter of sessions in the trail log. Domains: trail, mcp, signs. Appetite: small.
 - **Humans can write longer entries than agents without widening what agents read**: the caps are identical for everyone now; if browser edits are refused often enough to deter writing, a separate body cap for human writes, with structural caps unchanged, is the candidate. What would promote it: the rejections view showing the word cap firing mostly on human writes. Domains: entries, web_ui. Appetite: small.

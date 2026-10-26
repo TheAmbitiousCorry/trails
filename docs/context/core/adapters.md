@@ -13,7 +13,7 @@ Trails is agent-neutral. The server speaks MCP for agents and HTTP for hooks and
 - The protocol in the `session_start` response: a short how-to-walk block and the tag vocabulary, so an agent that was given only the MCP entry still learns the protocol on first contact.
 - Two hook endpoints under `/api`, both plain JSON over HTTP so a shell script with `curl` can call them:
   - `POST /api/off-trail {runtime_session_id, path}`: records an `off_trail` event and replies with the anchored entry's id and `read_when` when one exists, or an empty body.
-  - `POST /api/stop-check {runtime_session_id}`: replies `{open: bool, blocks: n, gaps: [...]}` and increments `blocks` on each call while the session is open. The hook blocks while `open` and `blocks <= 2`; on the third call the server closes the session with `ended_by: forced`.
+  - `POST /api/stop-check {runtime_session_id}`: replies `{open: bool, blocks: n, gaps: [...]}` and increments `blocks` on each call while the session is open. The hook blocks while the reply says `open`; on the third call the server closes the session with `ended_by: forced` and replies `open: false, forced: true`. When several open sessions share a runtime id the most recently started wins.
   - Hooks know the runtime's own session id, not the Trails one, so `session_start` accepts an optional `runtime_session_id`, and both hook endpoints resolve the open Trails session by it. A session-start hook prints the runtime id into the agent's context so it can pass it along. When no session matches, off-trail is dropped and stop-check replies `open: false`.
 - Fallbacks when a runtime has no hooks: a session with no call for four hours closes with `ended_by: timeout`, its gaps go to the browser queue, and off-trail reads are simply not recorded.
 
@@ -21,6 +21,6 @@ Trails is agent-neutral. The server speaks MCP for agents and HTTP for hooks and
 
 1. The protocol text from `protocol/PROTOCOL.md`, formatted for where that runtime reads project instructions.
 2. The MCP server entry for that runtime's configuration.
-3. Hook wiring that calls the three shared shell scripts on that runtime's session-start, after-file-read and stop events, when it has them. `adapters/HOOKS.md` holds the verified event names and shapes per runtime.
+3. Hook wiring that calls the three shared shell scripts in `adapters/generic/hooks/` on that runtime's session-start, after-file-read and stop events, when it has them. `adapters/HOOKS.md` holds the verified event names and shapes per runtime.
 
 `protocol/PROTOCOL.md` is the single source of the protocol text. Adapter copies are generated from it and a check in `make test` fails when a copy drifts.

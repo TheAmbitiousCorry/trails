@@ -33,6 +33,6 @@ The protocol lives in the surfaces the agent reads, never only in a rule it must
 - Tool descriptions carry it. `session_start`: call this first, before reading project files. `read`: read in full only when the `read_when` line matches your task, otherwise stay on the sign. `search`: use this before grep when you do not know where something lives. `look`: cheap, use it freely. Descriptions total under 1,500 tokens.
 - The orient view ends with a short how-to-walk block and the tag vocabulary: every defined tag with its one-line description. An agent learns what a tag means at the moment it sees it.
 - Tags are a vocabulary, not free text. A `write` with an undefined tag is accepted; the tag is stored with `defined = 0`, shown in the browser for a human to describe or merge, and left out of orient until then.
-- A PostToolUse hook answers a native Read or Grep that lands on a path an entry anchors to with one line: `Trail has an entry for this file: <id>, <read_when>`. The signpost appears at the moment the reader left the trail and costs nothing if ignored.
+- A PostToolUse hook answers a native Read or Grep that lands on a path an entry anchors to with one line: `Trails has an entry for this file: <id>, <read_when>`. The signpost appears at the moment the reader left the trail and costs nothing if ignored.
 
 The server exposes no other tools; adding one is a spec change and a golden-file diff.
