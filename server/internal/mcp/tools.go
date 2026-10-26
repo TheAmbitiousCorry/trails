@@ -14,6 +14,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/entries"
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
@@ -151,19 +152,21 @@ func (a anchorIn) toAnchor() anchor.Anchor {
 }
 
 type writeIn struct {
-	SessionID    string     `json:"session_id" jsonschema:"the id session_start returned"`
-	ParentSignID string     `json:"parent_sign_id,omitempty" jsonschema:"the sign the entry hangs under; required to create"`
-	Kind         string     `json:"kind,omitempty" jsonschema:"summary, decision, example, render or reference"`
-	Title        string     `json:"title" jsonschema:"80 characters max"`
-	ReadWhen     string     `json:"read_when" jsonschema:"one line, 200 characters max: the need this entry answers"`
-	Body         string     `json:"body" jsonschema:"Markdown"`
-	Anchors      []anchorIn `json:"anchors,omitempty"`
-	Tags         []string   `json:"tags,omitempty"`
-	Requires     []string   `json:"requires,omitempty" jsonschema:"ids of entries a reader needs before this one"`
-	SeeAlso      []string   `json:"see_also,omitempty" jsonschema:"ids of related entries"`
-	EntryID      string     `json:"entry_id,omitempty" jsonschema:"set to update an existing entry; omit to create. An update replaces requires and see_also"`
-	DecidedBy    string     `json:"decided_by,omitempty" jsonschema:"required for a decision"`
-	DecidedAt    string     `json:"decided_at,omitempty" jsonschema:"required for a decision"`
+	SessionID      string     `json:"session_id" jsonschema:"the id session_start returned"`
+	ParentSignID   string     `json:"parent_sign_id,omitempty" jsonschema:"the sign the entry hangs under; required to create"`
+	Kind           string     `json:"kind,omitempty" jsonschema:"summary, decision, example, render or reference"`
+	Title          string     `json:"title" jsonschema:"80 characters max"`
+	ReadWhen       string     `json:"read_when" jsonschema:"one line, 200 characters max: the need this entry answers"`
+	Body           string     `json:"body" jsonschema:"Markdown"`
+	Anchors        []anchorIn `json:"anchors,omitempty"`
+	Tags           []string   `json:"tags,omitempty"`
+	Requires       []string   `json:"requires,omitempty" jsonschema:"ids of entries a reader needs before this one"`
+	SeeAlso        []string   `json:"see_also,omitempty" jsonschema:"ids of related entries"`
+	EntryID        string     `json:"entry_id,omitempty" jsonschema:"set to update an existing entry; omit to create. An update replaces requires and see_also"`
+	DecidedBy      string     `json:"decided_by,omitempty" jsonschema:"required for a decision"`
+	DecidedAt      string     `json:"decided_at,omitempty" jsonschema:"required for a decision"`
+	Resolution     string     `json:"resolution,omitempty" jsonschema:"after a duplicate refusal: merge (add read_when as an alias on the hit), replace (supersede the hit) or distinct"`
+	DistinctReason string     `json:"distinct_reason,omitempty" jsonschema:"required with resolution distinct: why this is not the same entry"`
 }
 
 func (w writeIn) Call() trail.Call {
@@ -177,7 +180,29 @@ func (w writeIn) Call() trail.Call {
 type writeOut struct {
 	EntryID string `json:"entry_id"`
 	Tier    string `json:"tier"`
-	Lines   int    `json:"lines"`
+	// Merged means nothing new was stored: entry_id is the existing entry that now carries your read_when as an alias.
+	Merged bool `json:"merged,omitempty"`
+	Lines  int  `json:"lines"`
+}
+
+const (
+	defaultSearchLimit = 5
+	maxSearchLimit     = 10
+)
+
+type searchIn struct {
+	SessionID string `json:"session_id" jsonschema:"the id session_start returned"`
+	Query     string `json:"query" jsonschema:"what you are looking for, in plain words"`
+	TaskType  string `json:"task_type,omitempty" jsonschema:"entries tagged with this task type rank higher"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"1 to 10; default 5"`
+}
+
+func (s searchIn) Call() trail.Call { return trail.Call{SessionID: s.SessionID, Target: s.Query} }
+
+type searchOut struct {
+	Hits  []search.Hit `json:"hits"`
+	Miss  bool         `json:"miss"`
+	Lines int          `json:"lines"`
 }
 
 func registerTools(srv *sdk.Server, st *store.Store) {
@@ -221,6 +246,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "write",
 		Description: "Write one entry under a sign, or update one with entry_id. Agent writes land provisional. " +
 			"A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. " +
+			"A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. " +
 			"Returns entry_id and tier.",
 	}, trail.Record(rec, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn) (*sdk.CallToolResult, writeOut, error) {
 		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
@@ -231,7 +257,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			return nil, writeOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
-			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID}
+			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID,
+			Resolution: in.Resolution, DistinctReason: in.DistinctReason}
 		for _, a := range in.Anchors {
 			req.Anchors = append(req.Anchors, a.toAnchor())
 		}
@@ -242,7 +269,48 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		if res.Refusal != nil {
 			return nil, writeOut{}, res.Refusal
 		}
-		out := writeOut{EntryID: res.EntryID, Tier: res.Tier}
+		out := writeOut{EntryID: res.EntryID, Tier: res.Tier, Merged: res.Merged}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
+		Name: "search",
+		Description: "Use this before grep when you do not know where something lives. Returns up to limit entries (default 5, max 10) ranked verified above provisional above stale, " +
+			"each with id, title, read_when, tier, kind and sign_path (sign titles from the root to the entry's home sign), plus `miss` and `lines`. " +
+			"miss true means nothing matched well enough and a gap was opened at the sign you last looked at. " + untrustedNote,
+	}, trail.Record(rec, "search", func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn) (*sdk.CallToolResult, searchOut, error) {
+		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
+		if err != nil {
+			return nil, searchOut{}, err
+		}
+		if !ok {
+			return nil, searchOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
+		}
+		limit := in.Limit
+		if limit <= 0 {
+			limit = defaultSearchLimit
+		}
+		limit = min(limit, maxSearchLimit)
+		hits, miss, err := search.Query(ctx, st.DB, in.Query, in.TaskType, limit)
+		if err != nil {
+			return nil, searchOut{}, err
+		}
+		ids := make([]string, len(hits))
+		for i, h := range hits {
+			ids[i] = h.EntryID
+		}
+		trail.SetShown(ctx, ids)
+		if miss {
+			if _, err := trail.OpenGap(ctx, st.DB, in.SessionID, in.Query); err != nil {
+				return nil, searchOut{}, err
+			}
+			trail.SetResult(ctx, "miss")
+		}
+		out := searchOut{Hits: hits, Miss: miss}
+		if out.Hits == nil {
+			out.Hits = []search.Hit{}
+		}
 		out.Lines = countLines(out)
 		return nil, out, nil
 	}))

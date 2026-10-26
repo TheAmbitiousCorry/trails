@@ -179,3 +179,90 @@ func TestVerticalThread(t *testing.T) {
 		t.Errorf("events = %d, want 6", n)
 	}
 }
+
+func TestSearchHitMissAndGap(t *testing.T) {
+	st, addr := startServer(t)
+	ctx := context.Background()
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(ctx, &sdk.StreamableClientTransport{Endpoint: "http://" + addr + "/mcp", HTTPClient: http.DefaultClient}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	call := func(name string, args map[string]any) (*sdk.CallToolResult, error) {
+		return sess.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: args})
+	}
+
+	res, err := call("session_start", map[string]any{"task": "find the invoice rule", "task_type": "billing"})
+	sid := structured(t, res, err)["session_id"].(string)
+
+	write := func(title, body string) (*sdk.CallToolResult, error) {
+		return call("write", map[string]any{"session_id": sid, "parent_sign_id": "root", "kind": "decision", "title": title,
+			"read_when": "you study " + title, "body": body, "decided_by": "ana", "decided_at": "2026-10-27"})
+	}
+	for i, topic := range []string{"harbour tides", "orchard grafting", "violin varnish", "glacier survey", "pottery kiln", "beekeeping winter"} {
+		res, err := write("Notes on "+topic, "Filler "+string(rune('a'+i))+" covers "+topic+" only.")
+		structured(t, res, err)
+	}
+	res, err = write("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing totals.")
+	structured(t, res, err)
+
+	// A second identical write is refused with the three options named.
+	res, err = write("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing totals.")
+	if err != nil || !res.IsError {
+		t.Fatalf("duplicate write not refused: %v", err)
+	}
+	if txt := res.Content[0].(*sdk.TextContent).Text; !strings.HasPrefix(txt, "duplicate:") || !strings.Contains(txt, "merge") || !strings.Contains(txt, "replace") || !strings.Contains(txt, "distinct") {
+		t.Errorf("duplicate refusal = %q", txt)
+	}
+
+	// The miss gap stands where the session last looked.
+	res, err = call("look", map[string]any{"session_id": sid, "sign_id": "root"})
+	structured(t, res, err)
+
+	res, err = call("search", map[string]any{"session_id": sid, "query": "invoice rounding cent"})
+	hit := structured(t, res, err)
+	hits, _ := hit["hits"].([]any)
+	if hit["miss"] != false || len(hits) != 1 {
+		t.Fatalf("search hit = %v", hit)
+	}
+	h := hits[0].(map[string]any)
+	path, _ := h["sign_path"].([]any)
+	if h["id"] != "quarterly-invoice-rounding" || h["tier"] != "provisional" || h["kind"] != "decision" || len(path) != 1 {
+		t.Errorf("hit = %v", h)
+	}
+	var gaps int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM gaps`).Scan(&gaps)
+	if gaps != 0 {
+		t.Errorf("a search hit opened %d gaps", gaps)
+	}
+
+	res, err = call("search", map[string]any{"session_id": sid, "query": "qzxv wplk jnrt", "limit": 50})
+	miss := structured(t, res, err)
+	if miss["miss"] != true || len(miss["hits"].([]any)) != 0 {
+		t.Fatalf("search miss = %v", miss)
+	}
+	var signID, session, query, state string
+	if err := st.DB.QueryRow(`SELECT sign_id, session_id, query, state FROM gaps`).Scan(&signID, &session, &query, &state); err != nil {
+		t.Fatalf("no gap row: %v", err)
+	}
+	if signID != "root" || session != sid || query != "qzxv wplk jnrt" || state != "open" {
+		t.Errorf("gap = %q %q %q %q", signID, session, query, state)
+	}
+	var results []string
+	rows, _ := st.DB.Query(`SELECT result FROM events WHERE tool = 'search' ORDER BY id`)
+	defer rows.Close()
+	for rows.Next() {
+		var r string
+		rows.Scan(&r)
+		results = append(results, r)
+	}
+	if strings.Join(results, ",") != "ok,miss" {
+		t.Errorf("search event results = %v", results)
+	}
+	var shown string
+	st.DB.QueryRow(`SELECT shown_json FROM events WHERE tool = 'search' ORDER BY id LIMIT 1`).Scan(&shown)
+	if shown != `["quarterly-invoice-rounding"]` {
+		t.Errorf("shown = %s", shown)
+	}
+}

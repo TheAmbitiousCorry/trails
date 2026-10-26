@@ -36,7 +36,7 @@ type Hit struct {
 
 var defaults = map[string]float64{
 	"search_threshold":     0.5,
-	"duplicate_threshold":  10,
+	"duplicate_threshold":  0.8,
 	"paraphrase_threshold": 0.5,
 }
 
@@ -112,6 +112,22 @@ func Reindex(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// EntryQuery is the text a duplicate check searches for an entry: its title, read_when and first body paragraph.
+func EntryQuery(ctx context.Context, db DBTX, entryID string) (string, error) {
+	var title, readWhen, body string
+	err := db.QueryRowContext(ctx, `SELECT title, read_when, body_json FROM entries WHERE id = ?`, entryID).Scan(&title, &readWhen, &body)
+	if err != nil {
+		return "", err
+	}
+	return DuplicateQuery(title, readWhen, content.PlainText(json.RawMessage(body))), nil
+}
+
+// DuplicateQuery joins title, read_when and the first paragraph of plain text into one query.
+func DuplicateQuery(title, readWhen, plain string) string {
+	first, _, _ := strings.Cut(plain, "\n")
+	return title + " " + readWhen + " " + first
 }
 
 var wordRe = regexp.MustCompile(`[\p{L}\p{N}]+`)

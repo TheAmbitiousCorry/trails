@@ -5,12 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/TheAmbitiousCorry/trails/internal/content"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
@@ -111,6 +116,153 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 			return refusal("anchor", "%s does not resolve now: %v", a.Label(), err), nil
 		}
 		w.anchors = append(w.anchors, got)
+	}
+	return nil, nil
+}
+
+// maxDuplicateCandidates bounds the self-score lookups: only the best raw matches can be near-identical.
+const maxDuplicateCandidates = 3
+
+// duplicate is rule 4. It searches title, read_when and the first paragraph, then divides each top hit's bm25 by that hit's score against its own text,
+// so the threshold is a fraction of a perfect match and does not move with the length of the entry.
+func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
+	q := search.DuplicateQuery(w.req.Title, w.req.ReadWhen, content.PlainText(w.body))
+	hits, err := search.Rank(ctx, w.db, q, "")
+	if err != nil {
+		return nil, err
+	}
+	threshold, err := search.Setting(ctx, w.db, "duplicate_threshold")
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	var hit *search.Hit
+	seen := 0
+	for i := range hits {
+		h := &hits[i]
+		if w.prev != nil && h.EntryID == w.prev.id {
+			continue
+		}
+		if seen++; seen > maxDuplicateCandidates {
+			break
+		}
+		self, err := selfScore(ctx, w.db, h.EntryID)
+		if err != nil {
+			return nil, err
+		}
+		// A self score near zero means the corpus is too small for idf to say anything.
+		if self < 1e-3 {
+			continue
+		}
+		ratio := h.Score / self
+		if ratio > w.scores.Duplicate {
+			w.scores.Duplicate, w.scores.DuplicateOf, w.scores.DuplicateBM25 = ratio, h.EntryID, h.Score
+			hit = h
+		}
+	}
+	w.scores.measured = true
+	if w.scores.Duplicate <= threshold {
+		hit = nil
+	}
+	if hit == nil {
+		if w.req.Resolution == "distinct" {
+			w.distinctReason = strings.TrimSpace(w.req.DistinctReason)
+		}
+		return nil, nil
+	}
+	switch w.req.Resolution {
+	case "":
+		return refusal("duplicate", "%s (%q) already covers this (%.0f%% match). Write again with resolution merge (add your read_when as an alias on it), replace (supersede it) or distinct with a distinct_reason (keep both)",
+			hit.EntryID, hit.Title, w.scores.Duplicate*100), nil
+	case "merge":
+		if w.prev != nil {
+			return refusal("duplicate", "merge folds a new entry into %s; this write updates %s, so use replace or distinct", hit.EntryID, w.prev.id), nil
+		}
+		w.merge = hit
+	case "replace":
+		var before string
+		if err := w.db.QueryRowContext(ctx, `SELECT COALESCE(tier_before_stale, tier) FROM entries WHERE id = ?`, hit.EntryID).Scan(&before); err != nil {
+			return nil, err
+		}
+		if before == "verified" && w.req.Actor != "user" {
+			return refusal("verified", "%s is verified and an agent cannot supersede it; use merge or distinct, and a human resolves the pair in the browser", hit.EntryID), nil
+		}
+		w.supersede = hit
+	case "distinct":
+		reason := strings.TrimSpace(w.req.DistinctReason)
+		if reason == "" {
+			return refusal("duplicate", "distinct needs a distinct_reason: one line on why this is not the same entry as %s", hit.EntryID), nil
+		}
+		w.distinctReason = reason
+	default:
+		return refusal("duplicate", "resolution %q is not one of merge, replace, distinct", w.req.Resolution), nil
+	}
+	return nil, nil
+}
+
+// selfScore is the bm25 an entry earns when its own title, read_when and first paragraph are the query.
+func selfScore(ctx context.Context, db *sql.DB, id string) (float64, error) {
+	q, err := search.EntryQuery(ctx, db, id)
+	if err != nil {
+		return 0, err
+	}
+	hits, err := search.Rank(ctx, db, q, "")
+	if err != nil {
+		return 0, err
+	}
+	for _, h := range hits {
+		if h.EntryID == id {
+			return h.Score, nil
+		}
+	}
+	return 0, nil
+}
+
+var shingleWord = regexp.MustCompile(`[\p{L}\p{N}]+`)
+
+// shingles are the lowercased word 3-grams of text.
+func shingles(text string) map[string]bool {
+	words := shingleWord.FindAllString(strings.ToLower(text), -1)
+	out := map[string]bool{}
+	for i := 0; i+3 <= len(words); i++ {
+		out[strings.Join(words[i:i+3], " ")] = true
+	}
+	return out
+}
+
+// paraphrase is rule 5, for summaries only: the share of the body's shingles that also occur in the anchored files.
+func paraphrase(ctx context.Context, w *writer) (*trail.Refusal, error) {
+	if w.req.Kind != "summary" {
+		return nil, nil
+	}
+	var src strings.Builder
+	for _, a := range w.anchors {
+		if a.Type != "file" {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(w.checker.Repo, a.PathOrURL)); err == nil {
+			src.Write(b)
+			src.WriteByte('\n')
+		}
+	}
+	body, from := shingles(content.PlainText(w.body)), shingles(src.String())
+	score := 0.0
+	if len(body) > 0 {
+		shared := 0
+		for sh := range body {
+			if from[sh] {
+				shared++
+			}
+		}
+		score = float64(shared) / float64(len(body))
+	}
+	w.scores.Paraphrase, w.scores.measured = &score, true
+	threshold, err := search.Setting(ctx, w.db, "paraphrase_threshold")
+	if err != nil {
+		return nil, err
+	}
+	if score > threshold {
+		return refusal("paraphrase", "describe the why, point at the what"), nil
 	}
 	return nil, nil
 }

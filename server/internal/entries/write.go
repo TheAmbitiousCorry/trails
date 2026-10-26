@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
@@ -37,6 +38,9 @@ type WriteRequest struct {
 	DecidedBy    string
 	DecidedAt    string
 	EntryID      string
+	// Resolution answers a duplicate refusal: merge, replace or distinct. DistinctReason is required with distinct.
+	Resolution     string
+	DistinctReason string
 }
 
 // ConflictOffer names the verified entry an agent tried to overwrite and the provisional entry the server stored instead.
@@ -46,9 +50,11 @@ type ConflictOffer struct {
 }
 
 // WriteResult has Refusal set when a rule failed; EntryID and Tier then describe the entry stored anyway, which only a conflict does.
+// Merged means nothing was stored: the request's read_when became an alias on EntryID.
 type WriteResult struct {
 	EntryID  string
 	Tier     string
+	Merged   bool
 	Refusal  *trail.Refusal
 	Conflict *ConflictOffer
 }
@@ -65,16 +71,39 @@ type writer struct {
 	prev    *existing
 	body    json.RawMessage
 	anchors []anchor.Anchor
+
+	// Set by the duplicate rule from the request's resolution.
+	merge, supersede *search.Hit
+	distinctReason   string
+	scores           scores
+}
+
+// scores are what rules 4 and 5 measured; they are logged on every write that reached them, accepted or not.
+type scores struct {
+	Duplicate     float64  `json:"duplicate"`
+	DuplicateOf   string   `json:"duplicate_of,omitempty"`
+	DuplicateBM25 float64  `json:"duplicate_bm25,omitempty"`
+	Paraphrase    *float64 `json:"paraphrase,omitempty"`
+	measured      bool
 }
 
 type ruleFunc func(ctx context.Context, w *writer) (*trail.Refusal, error)
 
-// rules run in spec order and the first refusal wins; rules 4 and 5 (duplicate, paraphrase) go between anchors and fanOut.
-var rules = []ruleFunc{schema, wordCap, anchors, fanOut, reachability}
+// rules run in spec order and the first refusal wins.
+var rules = []ruleFunc{schema, wordCap, anchors, duplicate, paraphrase, fanOut, reachability}
 
 // Write runs the rules, then stores the entry. A refusal is returned in the result, an error only for a failure of the store itself.
 func Write(ctx context.Context, db *sql.DB, checker anchor.Checker, req WriteRequest) (WriteResult, error) {
 	w := &writer{db: db, checker: checker, req: req}
+	res, err := w.run(ctx)
+	if err == nil && w.scores.measured {
+		err = w.logScores(ctx, res)
+	}
+	return res, err
+}
+
+func (w *writer) run(ctx context.Context) (WriteResult, error) {
+	db, req := w.db, w.req
 	w.req.Title = strings.TrimSpace(req.Title)
 	w.req.ReadWhen = strings.TrimSpace(req.ReadWhen)
 	w.req.Tags = cleanList(req.Tags)
@@ -102,6 +131,9 @@ func Write(ctx context.Context, db *sql.DB, checker anchor.Checker, req WriteReq
 		ref, err := r(ctx, w)
 		if err != nil || ref != nil {
 			return WriteResult{Refusal: ref}, err
+		}
+		if w.merge != nil {
+			return w.mergeAlias(ctx)
 		}
 	}
 
@@ -144,7 +176,67 @@ func Write(ctx context.Context, db *sql.DB, checker anchor.Checker, req WriteReq
 		}
 		res = WriteResult{EntryID: w.prev.id, Tier: tier}
 	}
+	if err := search.Refresh(ctx, tx, res.EntryID); err != nil {
+		return WriteResult{}, err
+	}
+	if w.supersede != nil && res.Conflict == nil {
+		if err := w.markSuperseded(ctx, tx, res.EntryID); err != nil {
+			return WriteResult{}, err
+		}
+	}
 	return res, tx.Commit()
+}
+
+// mergeAlias stores the request's read_when as an alias on the duplicate hit and stores nothing else.
+func (w *writer) mergeAlias(ctx context.Context) (WriteResult, error) {
+	hit := w.merge
+	tx, err := w.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO entry_aliases (entry_id, read_when) SELECT ?1, ?2
+		WHERE ?2 != (SELECT read_when FROM entries WHERE id = ?1)
+		  AND NOT EXISTS (SELECT 1 FROM entry_aliases WHERE entry_id = ?1 AND read_when = ?2)`, hit.EntryID, w.req.ReadWhen)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	if err := search.Refresh(ctx, tx, hit.EntryID); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{EntryID: hit.EntryID, Tier: hit.Tier, Merged: true}, tx.Commit()
+}
+
+// markSuperseded links the new entry over the hit and retires the hit from default search.
+func (w *writer) markSuperseded(ctx context.Context, tx *sql.Tx, newID string) error {
+	old := w.supersede.EntryID
+	if err := addLink(ctx, tx, newID, old, "supersedes"); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant' WHERE id = ?`, newID, old)
+	return err
+}
+
+// logScores appends the write's measured scores as an events row of its own beside the recorder's write event.
+func (w *writer) logScores(ctx context.Context, res WriteResult) error {
+	target := res.EntryID
+	if target == "" {
+		target = w.req.EntryID
+	}
+	if target == "" {
+		target = w.req.ParentSignID
+	}
+	result := "ok"
+	if res.Refusal != nil {
+		result = "refused:" + res.Refusal.Rule
+	}
+	b, err := json.Marshal(w.scores)
+	if err != nil {
+		return err
+	}
+	_, err = w.db.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result, shown_json) VALUES (?, ?, 'write_scores', ?, ?, ?)`,
+		w.req.Actor, store.Now(), target, result, string(b))
+	return err
 }
 
 func loadExisting(ctx context.Context, db *sql.DB, id string) (*existing, *trail.Refusal, error) {
@@ -184,10 +276,10 @@ func (w *writer) create(ctx context.Context, tx *sql.Tx, tier string) (string, e
 	}
 	tags, _ := json.Marshal(append([]string{}, w.req.Tags...))
 	now := store.Now()
-	_, err = tx.ExecContext(ctx, `INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, decided_by, decided_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), ?, ?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, decided_by, decided_at, distinct_reason, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, ?)`,
 		id, w.req.ParentSignID, w.req.Kind, w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier,
-		w.req.DecidedBy, w.req.DecidedAt, now, now)
+		w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, now, now)
 	if err != nil {
 		return "", err
 	}
@@ -201,8 +293,8 @@ func (w *writer) update(ctx context.Context, tx *sql.Tx, tier string) error {
 	id := w.prev.id
 	tags, _ := json.Marshal(append([]string{}, w.req.Tags...))
 	_, err := tx.ExecContext(ctx, `UPDATE entries SET title = ?, read_when = ?, body_json = ?, body_schema = ?, tags_json = ?, tier = ?, tier_before_stale = NULL,
-		decided_by = NULLIF(?,''), decided_at = NULLIF(?,''), updated_at = ? WHERE id = ?`,
-		w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier, w.req.DecidedBy, w.req.DecidedAt, store.Now(), id)
+		decided_by = NULLIF(?,''), decided_at = NULLIF(?,''), distinct_reason = COALESCE(NULLIF(?,''), distinct_reason), updated_at = ? WHERE id = ?`,
+		w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier, w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, store.Now(), id)
 	if err != nil {
 		return err
 	}

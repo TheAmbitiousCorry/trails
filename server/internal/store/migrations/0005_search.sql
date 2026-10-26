@@ -23,5 +23,5 @@ CREATE TABLE gaps (
 );
 
 INSERT INTO settings (key, value) VALUES ('search_threshold', '0.5');
-INSERT INTO settings (key, value) VALUES ('duplicate_threshold', '10');
+INSERT INTO settings (key, value) VALUES ('duplicate_threshold', '0.8');
 INSERT INTO settings (key, value) VALUES ('paraphrase_threshold', '0.5');
