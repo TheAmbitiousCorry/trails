@@ -1,7 +1,9 @@
 server/bin/
 frontend/node_modules/
 frontend/dist/
-server/internal/web/dist/
+server/internal/web/dist/*
+!server/internal/web/dist/index.html
+bin/
 .proof/
 *.db
 *.db-wal

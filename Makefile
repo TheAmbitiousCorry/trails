@@ -11,9 +11,9 @@ test:
 	./scripts/check-adapters.sh
 	./scripts/test-hooks.sh
 
-# Frontend arrives in a later step; build stays Go-only until then.
+# Writes the Vue build into server/internal/web/dist, which the binary embeds; it overwrites the committed placeholder index.html.
 frontend:
-	@echo "frontend: not built yet"
+	cd frontend && npm ci && npm run build
 
 build: frontend
 	cd server && go build -o ../bin/trails ./cmd/trails

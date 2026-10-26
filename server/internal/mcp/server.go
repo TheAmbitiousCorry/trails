@@ -7,9 +7,10 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
+	"github.com/TheAmbitiousCorry/trails/internal/web"
 )
 
-// Handler serves /mcp and /api for a server listening on addr (host:port as the client dials it).
+// Handler serves /mcp, /api and the embedded front end for a server listening on addr (host:port as the client dials it).
 func Handler(st *store.Store, addr string) http.Handler {
 	srv := sdk.NewServer(&sdk.Implementation{Name: "trail", Title: "Trail", Version: "0.1.0"}, nil)
 	registerTools(srv, st)
@@ -22,7 +23,8 @@ func Handler(st *store.Store, addr string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", guard(addr, mcpHandler))
 	registerAPI(mux, st, addr)
-	// The rest of /api is for the front end, which arrives in a later step; the guard is already in front of it.
+	web.Register(mux, st, func(next http.Handler) http.Handler { return guard(addr, next) })
+	// An unknown /api path is a 404, never the front end's index.
 	mux.Handle("/api/", guard(addr, http.NotFoundHandler()))
 	return mux
 }
