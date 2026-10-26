@@ -93,3 +93,18 @@ func SessionExists(ctx context.Context, db *sql.DB, id string) (bool, error) {
 	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE id = ?`, id).Scan(&n)
 	return n > 0, err
 }
+
+// LogRead records an entry served inside another call's response as a read event of its own.
+func LogRead(ctx context.Context, db *sql.DB, sessionID, entryID, depth string) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, depth, result) VALUES (?, ?, 'read', ?, ?, 'ok')`,
+		sessionID, store.Now(), entryID, depth)
+	return err
+}
+
+// ReadAtFull reports whether the session has already been served the entry at full by a completed read.
+func ReadAtFull(ctx context.Context, db *sql.DB, sessionID, entryID string) (bool, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'read' AND depth = 'full' AND target = ? AND result = 'ok'`,
+		sessionID, entryID).Scan(&n)
+	return n > 0, err
+}

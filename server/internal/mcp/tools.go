@@ -13,6 +13,7 @@ import (
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
+	"github.com/TheAmbitiousCorry/trails/internal/entries"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
@@ -68,7 +69,7 @@ type untrusted struct {
 	BodyMarkdown string `json:"body_markdown"`
 }
 
-type readOut struct {
+type entryOut struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Kind      string    `json:"kind"`
@@ -76,7 +77,27 @@ type readOut struct {
 	ReadWhen  string    `json:"read_when"`
 	Untrusted untrusted `json:"untrusted"`
 	Notice    string    `json:"notice,omitempty"`
-	Lines     int       `json:"lines"`
+}
+
+type entryRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// readOut is the requested entry; Prerequisites, served in full, come before it in reading order.
+type readOut struct {
+	Prerequisites []entryOut     `json:"prerequisites,omitempty"`
+	AlreadyRead   []entryRef     `json:"already_read,omitempty"`
+	Related       []entries.Edge `json:"related,omitempty"`
+	Backlinks     []entries.Edge `json:"backlinks,omitempty"`
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Kind          string         `json:"kind"`
+	Tier          string         `json:"tier"`
+	ReadWhen      string         `json:"read_when"`
+	Untrusted     untrusted      `json:"untrusted"`
+	Notice        string         `json:"notice,omitempty"`
+	Lines         int            `json:"lines"`
 }
 
 type lookIn struct {
@@ -103,6 +124,60 @@ func (l lookIn) Call() trail.Call {
 		d = strconv.Itoa(l.Depth)
 	}
 	return trail.Call{SessionID: l.SessionID, Target: target, Depth: d}
+}
+
+type anchorIn struct {
+	Type    string `json:"type" jsonschema:"file, dir, range, commit, url, transcript or produced_by"`
+	Path    string `json:"path,omitempty" jsonschema:"repo-relative path for file, dir and range; provider:id for transcript"`
+	Start   int    `json:"start,omitempty" jsonschema:"first line of a range"`
+	End     int    `json:"end,omitempty" jsonschema:"last line of a range"`
+	URL     string `json:"url,omitempty"`
+	Command string `json:"command,omitempty" jsonschema:"the command or URL that produced a render"`
+	SHA     string `json:"sha,omitempty" jsonschema:"commit sha for commit and produced_by"`
+}
+
+// toAnchor maps the tool's fields onto the column use described in the entries spec.
+func (a anchorIn) toAnchor() anchor.Anchor {
+	out := anchor.Anchor{Type: a.Type, PathOrURL: a.Path, RangeStart: a.Start, RangeEnd: a.End, Hash: a.SHA}
+	switch a.Type {
+	case "url":
+		out.PathOrURL = a.URL
+	case "produced_by":
+		out.PathOrURL = a.Command
+	case "transcript":
+		out.PathOrURL, out.Extra = "", a.Path
+	}
+	return out
+}
+
+type writeIn struct {
+	SessionID    string     `json:"session_id" jsonschema:"the id session_start returned"`
+	ParentSignID string     `json:"parent_sign_id,omitempty" jsonschema:"the sign the entry hangs under; required to create"`
+	Kind         string     `json:"kind,omitempty" jsonschema:"summary, decision, example, render or reference"`
+	Title        string     `json:"title" jsonschema:"80 characters max"`
+	ReadWhen     string     `json:"read_when" jsonschema:"one line, 200 characters max: the need this entry answers"`
+	Body         string     `json:"body" jsonschema:"Markdown"`
+	Anchors      []anchorIn `json:"anchors,omitempty"`
+	Tags         []string   `json:"tags,omitempty"`
+	Requires     []string   `json:"requires,omitempty" jsonschema:"ids of entries a reader needs before this one"`
+	SeeAlso      []string   `json:"see_also,omitempty" jsonschema:"ids of related entries"`
+	EntryID      string     `json:"entry_id,omitempty" jsonschema:"set to update an existing entry; omit to create. An update replaces requires and see_also"`
+	DecidedBy    string     `json:"decided_by,omitempty" jsonschema:"required for a decision"`
+	DecidedAt    string     `json:"decided_at,omitempty" jsonschema:"required for a decision"`
+}
+
+func (w writeIn) Call() trail.Call {
+	target := w.EntryID
+	if target == "" {
+		target = w.ParentSignID
+	}
+	return trail.Call{SessionID: w.SessionID, Target: target}
+}
+
+type writeOut struct {
+	EntryID string `json:"entry_id"`
+	Tier    string `json:"tier"`
+	Lines   int    `json:"lines"`
 }
 
 func registerTools(srv *sdk.Server, st *store.Store) {
@@ -143,6 +218,36 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 	}))
 
 	sdk.AddTool(srv, &sdk.Tool{
+		Name: "write",
+		Description: "Write one entry under a sign, or update one with entry_id. Agent writes land provisional. " +
+			"A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. " +
+			"Returns entry_id and tier.",
+	}, trail.Record(rec, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn) (*sdk.CallToolResult, writeOut, error) {
+		ok, err := trail.SessionExists(ctx, st.DB, in.SessionID)
+		if err != nil {
+			return nil, writeOut{}, err
+		}
+		if !ok {
+			return nil, writeOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
+		}
+		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
+			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID}
+		for _, a := range in.Anchors {
+			req.Anchors = append(req.Anchors, a.toAnchor())
+		}
+		res, err := entries.Write(ctx, st.DB, checker, req)
+		if err != nil {
+			return nil, writeOut{}, err
+		}
+		if res.Refusal != nil {
+			return nil, writeOut{}, res.Refusal
+		}
+		out := writeOut{EntryID: res.EntryID, Tier: res.Tier}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
 		Name: "look",
 		Description: "Cheap, use it freely. Returns one sign: its summary, its parent's title and its edges, each with read_when, scent keywords and tier, plus `lines`, the size of the response. " +
 			"Pass sign_id or entry_id, or tag and/or kind (optionally within a sign_id) for a virtual sign gathering matches across the tree. " +
@@ -177,20 +282,21 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	return o, err
 }
 
-func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readIn) (*sdk.CallToolResult, readOut, error) {
-	var out readOut
-	failed, err := anchor.RefreshEntry(ctx, db, checker, in.EntryID)
+// serveEntry refreshes the entry's anchors and returns it, with an empty body and a notice when it is stale.
+func serveEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, id, depth string) (entryOut, error) {
+	var out entryOut
+	failed, err := anchor.RefreshEntry(ctx, db, checker, id)
 	if err != nil {
-		return nil, out, err
+		return out, err
 	}
 	var body string
-	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json FROM entries WHERE id = ?`, in.EntryID).
+	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json FROM entries WHERE id = ?`, id).
 		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, out, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from the orient view or a sign; check the id"}
+		return out, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from the orient view or a sign; check the id"}
 	}
 	if err != nil {
-		return nil, out, err
+		return out, err
 	}
 	if out.Tier == "stale" {
 		labels := make([]string, len(failed))
@@ -198,17 +304,56 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 			labels[i] = a.Label()
 		}
 		out.Notice = "Stale, body withheld. Read the anchor, not this entry. Failed anchors: " + strings.Join(labels, "; ")
-		out.Lines = countLines(out)
-		return nil, out, nil
+		return out, nil
 	}
 	md, err := markdown.ToMarkdown(json.RawMessage(body))
 	if err != nil {
-		return nil, out, err
+		return out, err
 	}
-	if normDepth(in.Depth) == "summary" {
+	if depth == "summary" {
 		md, _, _ = strings.Cut(md, "\n\n")
 	}
 	out.Untrusted.BodyMarkdown = md
+	return out, nil
+}
+
+func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readIn) (*sdk.CallToolResult, readOut, error) {
+	var out readOut
+	depth := normDepth(in.Depth)
+	main, err := serveEntry(ctx, db, checker, in.EntryID, depth)
+	if err != nil {
+		return nil, out, err
+	}
+	if depth == "full" {
+		chain, err := entries.Chain(ctx, db, in.EntryID)
+		if err != nil {
+			return nil, out, err
+		}
+		for _, id := range chain {
+			seen, err := trail.ReadAtFull(ctx, db, in.SessionID, id)
+			if err != nil {
+				return nil, out, err
+			}
+			p, err := serveEntry(ctx, db, checker, id, "full")
+			if err != nil {
+				return nil, out, err
+			}
+			if seen {
+				out.AlreadyRead = append(out.AlreadyRead, entryRef{p.ID, p.Title})
+				continue
+			}
+			if err := trail.LogRead(ctx, db, in.SessionID, id, "full"); err != nil {
+				return nil, out, err
+			}
+			out.Prerequisites = append(out.Prerequisites, p)
+		}
+	}
+	out.Related, out.Backlinks, err = entries.Edges(ctx, db, in.EntryID)
+	if err != nil {
+		return nil, out, err
+	}
+	out.ID, out.Title, out.Kind, out.Tier, out.ReadWhen = main.ID, main.Title, main.Kind, main.Tier, main.ReadWhen
+	out.Untrusted, out.Notice = main.Untrusted, main.Notice
 	out.Lines = countLines(out)
 	return nil, out, nil
 }
