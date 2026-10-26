@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"strconv"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
@@ -73,6 +75,7 @@ type readOut struct {
 	Tier      string    `json:"tier"`
 	ReadWhen  string    `json:"read_when"`
 	Untrusted untrusted `json:"untrusted"`
+	Notice    string    `json:"notice,omitempty"`
 	Lines     int       `json:"lines"`
 }
 
@@ -104,6 +107,7 @@ func (l lookIn) Call() trail.Call {
 
 func registerTools(srv *sdk.Server, st *store.Store) {
 	rec := &trail.Recorder{DB: st.DB}
+	checker := anchor.Checker{Repo: st.Repo, Fetcher: anchor.NewFetch(&net.Resolver{})}
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "session_start",
@@ -135,7 +139,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		if !ok {
 			return nil, readOut{}, &trail.Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
 		}
-		return readEntry(ctx, st.DB, in)
+		return readEntry(ctx, st.DB, checker, in)
 	}))
 
 	sdk.AddTool(srv, &sdk.Tool{
@@ -173,16 +177,29 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	return o, err
 }
 
-func readEntry(ctx context.Context, db *sql.DB, in readIn) (*sdk.CallToolResult, readOut, error) {
+func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readIn) (*sdk.CallToolResult, readOut, error) {
 	var out readOut
+	failed, err := anchor.RefreshEntry(ctx, db, checker, in.EntryID)
+	if err != nil {
+		return nil, out, err
+	}
 	var body string
-	err := db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json FROM entries WHERE id = ?`, in.EntryID).
+	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json FROM entries WHERE id = ?`, in.EntryID).
 		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, out, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from the orient view or a sign; check the id"}
 	}
 	if err != nil {
 		return nil, out, err
+	}
+	if out.Tier == "stale" {
+		labels := make([]string, len(failed))
+		for i, a := range failed {
+			labels[i] = a.Label()
+		}
+		out.Notice = "Stale, body withheld. Read the anchor, not this entry. Failed anchors: " + strings.Join(labels, "; ")
+		out.Lines = countLines(out)
+		return nil, out, nil
 	}
 	md, err := markdown.ToMarkdown(json.RawMessage(body))
 	if err != nil {

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
@@ -101,6 +104,35 @@ func TestVerticalThread(t *testing.T) {
 		t.Errorf("depth 4 not refused: %v", err)
 	}
 
+	// Anchor the seeded entry to a file, edit the file, and the next read serves it stale with no body.
+	file := filepath.Join(st.Repo, "notes.txt")
+	if err := os.WriteFile(file, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checker := anchor.Checker{Repo: st.Repo}
+	a, err := checker.Resolve(ctx, anchor.Anchor{EntryID: "trail", Type: "file", PathOrURL: "notes.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := anchor.Insert(ctx, st.DB, a); err != nil {
+		t.Fatal(err)
+	}
+	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "read", Arguments: map[string]any{"session_id": sid, "entry_id": "trail", "depth": "full"}})
+	if fresh := structured(t, res, err); fresh["tier"] != "verified" || fresh["untrusted"].(map[string]any)["body_markdown"] == "" {
+		t.Errorf("anchored entry unread-able while the anchor holds: %v", fresh)
+	}
+	if err := os.WriteFile(file, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err = sess.CallTool(ctx, &sdk.CallToolParams{Name: "read", Arguments: map[string]any{"session_id": sid, "entry_id": "trail", "depth": "full"}})
+	stale := structured(t, res, err)
+	if stale["tier"] != "stale" || stale["untrusted"].(map[string]any)["body_markdown"] != "" {
+		t.Errorf("stale read = %v", stale)
+	}
+	if n, _ := stale["notice"].(string); !strings.Contains(n, "notes.txt") {
+		t.Errorf("notice does not name the failed anchor: %q", n)
+	}
+
 	rows, err := st.DB.Query(`SELECT tool, session_id, result FROM events ORDER BY id`)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +147,7 @@ func TestVerticalThread(t *testing.T) {
 		}
 		tools = append(tools, tool)
 	}
-	if strings.Join(tools, ",") != "session_start,read,look,look" {
+	if strings.Join(tools, ",") != "session_start,read,look,look,read,read" {
 		t.Errorf("events = %v", tools)
 	}
 
@@ -143,7 +175,7 @@ func TestVerticalThread(t *testing.T) {
 
 	var n int
 	st.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n)
-	if n != 4 {
-		t.Errorf("events = %d, want 4", n)
+	if n != 6 {
+		t.Errorf("events = %d, want 6", n)
 	}
 }

@@ -26,6 +26,8 @@ type Store struct {
 	DB        *sql.DB
 	ProjectID string
 	Path      string
+	// Repo is the working tree anchors resolve against.
+	Repo string
 }
 
 // Open resolves the project id from <repo>/.trail/id (creating it when missing) and opens <home>/<id>/trail.db.
@@ -44,7 +46,7 @@ func Open(home, repo string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{DB: db, ProjectID: id, Path: path}
+	s := &Store{DB: db, ProjectID: id, Path: path, Repo: repo}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err

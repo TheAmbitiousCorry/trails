@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
@@ -97,6 +98,9 @@ func Look(ctx context.Context, db *sql.DB, req LookRequest) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
+	if err := fillStale(ctx, db, &v); err != nil {
+		return View{}, err
+	}
 	b, _ := json.MarshalIndent(v, "", "  ")
 	v.Lines = strings.Count(string(b), "\n") + 1
 	return v, nil
@@ -175,6 +179,26 @@ func (p *project) view(signID string, depth int, taskType string) View {
 	return v
 }
 
+// fillStale sets every sign edge's stale count from the anchor package, the one owner of what stale means.
+func fillStale(ctx context.Context, db *sql.DB, v *View) error {
+	for i := range v.Edges {
+		e := &v.Edges[i]
+		if e.Type == "sign" {
+			n, err := anchor.StaleCount(ctx, db, e.ID)
+			if err != nil {
+				return err
+			}
+			e.StaleCount = n
+		}
+		if e.Children != nil {
+			if err := fillStale(ctx, db, e.Children); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func anyTagged(es []*entryRow, tag string) bool {
 	for _, e := range es {
 		if hasTag(e.Tags, tag) {
@@ -195,11 +219,6 @@ func (p *project) signEdge(id string) Edge {
 		ChildCount: len(p.kids[id]) + len(p.bySign[id])}
 	if _, sum := p.summaryLine(id); sum != nil {
 		e.Tier, e.ReadWhen = sum.Tier, sum.ReadWhen
-	}
-	for _, x := range sub {
-		if x.Tier == "stale" {
-			e.StaleCount++
-		}
 	}
 	return e
 }
