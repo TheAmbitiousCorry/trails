@@ -1,0 +1,8 @@
+server/bin/
+frontend/node_modules/
+frontend/dist/
+server/internal/web/dist/
+.proof/
+*.db
+*.db-wal
+*.db-shm
