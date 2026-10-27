@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import SidebarTree from './components/SidebarTree.vue'
 
 const links = [
   { to: '/', label: 'Map' },
@@ -23,6 +24,7 @@ watch(() => route.fullPath, () => { open.value = false })
     <button v-if="open" type="button" class="scrim open" aria-label="Close menu" tabindex="-1" @click="open = false"></button>
     <aside id="sidebar" class="sidebar" :class="{ open }" @keydown.esc="open = false">
       <RouterLink to="/" class="brand">Trails</RouterLink>
+      <nav class="side-tree-nav" aria-label="Wiki"><SidebarTree /></nav>
       <nav class="side-nav" aria-label="Pages">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to" :exact-active-class="l.to === '/' ? 'current' : ''" :active-class="l.to === '/' ? '' : 'current'">{{ l.label }}</RouterLink>
       </nav>
