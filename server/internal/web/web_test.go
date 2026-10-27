@@ -3,10 +3,12 @@ package web_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -264,6 +266,30 @@ func TestSessionRouteMarksMissOffTrailAndWrites(t *testing.T) {
 	}
 	if code, _ := f.get("/api/sessions/nope"); code != 404 {
 		t.Errorf("unknown session: %d", code)
+	}
+}
+
+func TestSessionRoutePinsHopSequence(t *testing.T) {
+	f := seed(t)
+	_, m := f.get("/api/sessions/" + f.session)
+	var got []string
+	for _, s := range m["route"].([]any) {
+		step := s.(map[string]any)
+		got = append(got, fmt.Sprintf("%v|%v|%v|%v|%d", step["tool"], step["target"], step["miss"], step["turn_back"], len(step["prerequisites"].([]any))))
+	}
+	want := []string{
+		"look|root|false|false|0",
+		"look|billing|false|false|0",
+		"search|zebra migration|true|false|0",
+		"write|invoices|false|false|0",
+		"write|invoices|false|false|0",
+		"read|round-helper|false|false|1",
+		"write|invoices|false|false|0",
+		"resolve_gap|1|false|false|0",
+		"session_end||false|false|0",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("route = %q", got)
 	}
 }
 

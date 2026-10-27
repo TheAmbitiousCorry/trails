@@ -97,13 +97,27 @@ func (a *api) session(r *http.Request) (any, error) {
 		return nil, notFound("unknown session")
 	}
 
+	route, offTrail, touched, err := buildRoute(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"session":   list[0],
+		"route":     route,
+		"off_trail": offTrail,
+		"touched":   touched,
+	}, nil
+}
+
+// buildRoute returns a session's hops in order, its off-trail reads, and the entries it wrote or confirmed.
+func buildRoute(ctx context.Context, db *sql.DB, id string) (route []routeStep, offTrail []offTrailRow, touched []touchedEntry, err error) {
 	events, err := collect(ctx, db, `SELECT at, tool, target, depth, result, shown_json FROM events WHERE session_id = ? ORDER BY id`, []any{id},
 		func(rs *sql.Rows) (rawEvent, error) {
 			var e rawEvent
 			return e, rs.Scan(&e.at, &e.tool, &e.target, &e.depth, &e.result, &e.shown)
 		})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Titles and parents for every sign and entry the route can name.
@@ -114,7 +128,7 @@ func (a *api) session(r *http.Request) (any, error) {
 		signTitle[i], signParent[i] = t, p
 		return struct{}{}, err
 	}); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	if _, err := collect(ctx, db, `SELECT id, sign_id, title FROM entries`, nil, func(rs *sql.Rows) (struct{}, error) {
 		var i, s, t string
@@ -122,7 +136,7 @@ func (a *api) session(r *http.Request) (any, error) {
 		entryTitle[i], entrySign[i] = t, s
 		return struct{}{}, err
 	}); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	titleOf := func(target string) (title, kind string) {
 		if t, ok := signTitle[target]; ok {
@@ -138,14 +152,14 @@ func (a *api) session(r *http.Request) (any, error) {
 		return pathStep{ID: id, Title: t}
 	}
 
-	touched, err := collect(ctx, db, `SELECT e.id, e.title, `+effTier+`, 'wrote', MIN(v.created_at)
+	touched, err = collect(ctx, db, `SELECT e.id, e.title, `+effTier+`, 'wrote', MIN(v.created_at)
 		FROM versions v JOIN entries e ON e.id = v.entry_id WHERE v.actor = ? GROUP BY e.id ORDER BY MIN(v.created_at)`, []any{id},
 		func(rs *sql.Rows) (touchedEntry, error) {
 			var t touchedEntry
 			return t, rs.Scan(&t.ID, &t.Title, &t.Tier, &t.How, &t.At)
 		})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	confirms, err := collect(ctx, db, `SELECT e.id, e.title, `+effTier+`, 'confirmed', ev.at
 		FROM events ev JOIN entries e ON e.id = ev.target WHERE ev.session_id = ? AND ev.tool = 'confirm' AND ev.result = 'ok' ORDER BY ev.id`, []any{id},
@@ -154,7 +168,7 @@ func (a *api) session(r *http.Request) (any, error) {
 			return t, rs.Scan(&t.ID, &t.Title, &t.Tier, &t.How, &t.At)
 		})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	touched = append(touched, confirms...)
 	isTouched := map[string]bool{}
@@ -170,11 +184,11 @@ func (a *api) session(r *http.Request) (any, error) {
 		gapIDs[q] = gid
 		return struct{}{}, err
 	}); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	route := []routeStep{}
-	offTrail := []offTrailRow{}
+	route = []routeStep{}
+	offTrail = []offTrailRow{}
 	seen := map[string]bool{}
 	prevLook := ""
 	for i := 0; i < len(events); i++ {
@@ -185,7 +199,7 @@ func (a *api) session(r *http.Request) (any, error) {
 		case "off_trail":
 			row := offTrailRow{At: ev.at, Path: ev.target}
 			if eid, ok, err := anchoredEntry(ctx, db, ev.target); err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			} else if ok {
 				row.EntryID, row.Title = eid, entryTitle[eid]
 			}
@@ -215,7 +229,7 @@ func (a *api) session(r *http.Request) (any, error) {
 			if ev.depth == "full" && ev.result == "ok" {
 				chain, err := entries.Chain(ctx, db, ev.target)
 				if err != nil {
-					return nil, err
+					return nil, nil, nil, err
 				}
 				inChain := map[string]bool{}
 				for _, c := range chain {
@@ -235,12 +249,7 @@ func (a *api) session(r *http.Request) (any, error) {
 		}
 		route = append(route, s)
 	}
-	return map[string]any{
-		"session":   list[0],
-		"route":     route,
-		"off_trail": offTrail,
-		"touched":   touched,
-	}, nil
+	return route, offTrail, touched, nil
 }
 
 // anchoredEntry names the live entry whose file, range or dir anchor covers rel, preferring an exact file match over the deepest dir.
