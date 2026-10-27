@@ -31,7 +31,7 @@ A sign's entries of one kind show as one edge each when alone, and as one `group
 
 ## Fan-out cap
 
-A sign holds at most seven edges by default. A write that would create an eighth is refused with `split this fork`, and the response proposes a grouping of the existing edges from their tags, naming the child sign ids and entry ids in each group and ending with how to act on it: create a sign for a group with `write_sign` and pass their ids in `move`. The cap is a project setting. Entries under a sign count as one edge per kind present, except that a lone summary is the sign's own description and counts for nothing; so a sign's edge count is its child signs plus its distinct entry kinds, with the summary kind counting only from the second summary.
+A sign holds at most eight edges by default. A write that would create a ninth is refused with `split this fork`, and the response names the cap and the project setting that holds it (`fan_out_cap`), proposes a grouping of the existing edges from their tags, naming the child sign ids and entry ids in each group, and ends with how to act on it: create a sign for a group with `write_sign` and pass their ids in `move`. Eight follows the menu breadth studies and the tree-walking agents that plateau between five and eight children; the setting exists because a project's domain count is given, not chosen. Entries under a sign count as one edge per kind present, except that a lone summary is the sign's own description and counts for nothing; so a sign's edge count is its child signs plus its distinct entry kinds, with the summary kind counting only from the second summary.
 
 ## Creating a sign
 

@@ -91,6 +91,7 @@ func TestCreateSignRefusals(t *testing.T) {
 
 func TestCreateSignRefusedOnFullParent(t *testing.T) {
 	db := open(t)
+	db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('fan_out_cap', '7')`)
 	ctx := context.Background()
 	addSign(t, db, "fork", "root")
 	for i := 1; i <= 5; i++ {
@@ -186,6 +187,7 @@ func TestCreateSignMovesChildSignWithSubtree(t *testing.T) {
 
 func TestCreateSignRootStyleParentWithSummary(t *testing.T) {
 	db := open(t)
+	db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('fan_out_cap', '7')`)
 	ctx := context.Background()
 	addSign(t, db, "hub", "root")
 	for i := 1; i <= 7; i++ {
@@ -208,6 +210,7 @@ func TestCreateSignRootStyleParentWithSummary(t *testing.T) {
 
 func TestSplitProposalNamesSignIDs(t *testing.T) {
 	db := open(t)
+	db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('fan_out_cap', '7')`)
 	ctx := context.Background()
 	addSign(t, db, "fork", "root")
 	for i := 1; i <= 7; i++ {

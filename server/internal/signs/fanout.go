@@ -11,7 +11,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
-const defaultFanOutCap = 7
+const defaultFanOutCap = 8
 
 // RefusalRules names every rule this package refuses with.
 var RefusalRules = []string{"depth_cap", "unknown_entry", "look_target", "unknown_sign", "split this fork", "move_scope"}
@@ -143,7 +143,7 @@ func (p *project) proposeSplit(us []unit, limit int, subject string) string {
 			tags = append(tags, t)
 		}
 	}
-	head := fmt.Sprintf("%s %d edges and the cap is %d; ", subject, len(us), limit)
+	head := fmt.Sprintf("%s %d edges and the cap is %d (the project setting fan_out_cap); ", subject, len(us), limit)
 	if len(tags) == 0 {
 		return head + "no tag is shared by two edges, so tag the existing edges, then group them under new signs; " + splitAction
 	}

@@ -3,4 +3,4 @@ CREATE TABLE settings (
     value TEXT
 );
 
-INSERT INTO settings (key, value) VALUES ('fan_out_cap', '7');
+INSERT INTO settings (key, value) VALUES ('fan_out_cap', '8');

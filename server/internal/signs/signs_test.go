@@ -45,6 +45,7 @@ func addEntry(t *testing.T, db *sql.DB, id, sign, kind, text string, tags ...str
 
 func TestEighthEdgeRefused(t *testing.T) {
 	db := open(t)
+	db.Exec(`UPDATE settings SET value = '7' WHERE key = 'fan_out_cap'`)
 	ctx := context.Background()
 	for i := 1; i <= 7; i++ {
 		addSign(t, db, fmt.Sprintf("c%d", i), "root")
@@ -191,6 +192,7 @@ func TestDepthAndScent(t *testing.T) {
 
 func TestLoneSummaryIsNoEdge(t *testing.T) {
 	db := open(t)
+	db.Exec(`UPDATE settings SET value = '7' WHERE key = 'fan_out_cap'`)
 	ctx := context.Background()
 	addSign(t, db, "fork", "root")
 	for i := 1; i <= 7; i++ {

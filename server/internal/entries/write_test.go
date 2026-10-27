@@ -52,6 +52,7 @@ func count(t *testing.T, db *sql.DB, query string, args ...any) int {
 
 func TestRuleNames(t *testing.T) {
 	st, c := open(t)
+	st.DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('fan_out_cap', '7')`)
 	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
