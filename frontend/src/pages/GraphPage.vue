@@ -16,6 +16,8 @@ const FOLD_ABOVE = 150
 const LABEL_ENTRIES_BELOW = 60
 const FIT_PAD = 24
 const ROUTE_FIT_PAD = 48
+const WALK_COLUMN_MIN = 110
+const WALK_LABEL_MAX = 30
 const LINK_COLOURS = new Set(['requires', 'see_also', 'supersedes', 'conflicts_with'])
 
 const route = useRoute()
@@ -27,6 +29,7 @@ const focus = computed(() => one(route.query.focus))
 const depth = computed(() => (one(route.query.depth) === '2' ? 2 : 1))
 const tag = computed(() => one(route.query.tag))
 const session = computed(() => one(route.query.session))
+const whole = ref(false)
 const filtered = computed(() => !!(focus.value || tag.value || session.value))
 
 const api = useApi<GraphResponse>(() => {
@@ -87,23 +90,37 @@ function draw() {
       for (let s = n.sign_id ?? ''; s; s = parent.get(s) ?? '') subtree.set(s, (subtree.get(s) ?? 0) + 1)
     }
   }
-  const shown = folded.value ? signs : g.nodes
+  const routeIds = new Set((g.route ?? []).filter((h) => h.kind !== 'query').flatMap((h) => [h.target, ...h.prerequisites]))
+  // Walk mode keeps only the route, its served prerequisites and the signs above them; the rest of the response is not drawn.
+  const walk = !!session.value && !whole.value && g.nodes.some((n) => routeIds.has(n.id))
+  let shown = folded.value ? signs : g.nodes
+  if (walk) {
+    const byNode = new Map(g.nodes.map((n) => [n.id, n]))
+    const keep = new Set<string>()
+    for (const id of routeIds) {
+      const n = byNode.get(id)
+      if (!n) continue
+      keep.add(id)
+      for (let s = n.type === 'sign' ? n.parent : n.sign_id; s && !keep.has(s); s = byNode.get(s)?.parent) keep.add(s)
+    }
+    shown = g.nodes.filter((n) => keep.has(n.id))
+  }
   const entryCount = shown.filter((n) => n.type === 'entry').length
   const labelEntries = entryCount < LABEL_ENTRIES_BELOW
   const maxReads = Math.max(1, ...shown.map((n) => n.reads_30d ?? 0))
 
-  const routeIds = new Set((g.route ?? []).filter((h) => h.kind !== 'query').flatMap((h) => [h.target, ...h.prerequisites]))
   const nodes: SimNode[] = shown.map((n) => ({
     ...n,
     r: n.type === 'sign' ? 11 : 5 + 9 * Math.sqrt((n.reads_30d ?? 0) / maxReads),
-    label: n.type === 'sign' && folded.value ? `${n.title} (${subtree.get(n.id) ?? 0})` : n.title,
-    labelAlways: n.type === 'sign' || labelEntries || routeIds.has(n.id),
+    label: n.type === 'sign' && folded.value ? `${n.title} (${subtree.get(n.id) ?? 0})` : walk && n.title.length > WALK_LABEL_MAX ? `${n.title.slice(0, WALK_LABEL_MAX - 1)}…` : n.title,
+    labelAlways: n.type === 'sign' || labelEntries || walk || routeIds.has(n.id),
   }))
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const edges: GraphEdge[] = g.edges.filter((e) => byId.has(e.from) && byId.has(e.to))
   const links: SimLink[] = edges.map((e) => ({ source: e.from, target: e.to, relation: e.relation }))
 
-  const w = el.clientWidth || 800
+  const cols = walk ? walkColumns(g.route ?? [], nodes) : null
+  const w = Math.max(el.clientWidth || 800, cols ? cols.count * WALK_COLUMN_MIN : 0)
   const h = el.clientHeight || 600
   const svg = select(el).attr('viewBox', `0 0 ${w} ${h}`)
 
@@ -154,16 +171,19 @@ function draw() {
   const small = nodes.length < 40
   const homeDist = small ? 90 : 40
   const typedDist = small ? 90 : 70
+  const linkForce = forceLink<SimNode, SimLink>(links).id((n) => n.id).distance((l) => (l.relation === 'home' ? homeDist : typedDist))
+  // The column and row forces own the walk's layout; links only nudge.
+  if (walk) linkForce.strength(0.05)
   sim = forceSimulation(nodes)
-    .force('link', forceLink<SimNode, SimLink>(links).id((n) => n.id).distance((l) => (l.relation === 'home' ? homeDist : typedDist)))
-    .force('charge', forceManyBody().strength(small ? -300 : -120))
-    .force('x', forceX<SimNode>(w / 2).strength(0.05))
-    .force('y', forceY<SimNode>(h / 2).strength(0.05))
+    .force('link', linkForce)
+    .force('charge', forceManyBody().strength(walk ? -80 : small ? -300 : -120))
+    .force('x', cols ? forceX<SimNode>((n) => cols.x(n, w)).strength(0.6) : forceX<SimNode>(w / 2).strength(0.05))
+    .force('y', cols ? forceY<SimNode>((n) => cols.y(n, h)).strength(0.5) : forceY<SimNode>(h / 2).strength(0.05))
     .force('collide', forceCollide<SimNode>((n) => n.r + 4))
     .alphaDecay(0.04)
     .stop()
   // Centre-based collision cannot keep side labels apart, so small graphs also push overlapping label boxes apart vertically.
-  if (small) sim.force('labels', labelForce(nodes))
+  if (small || walk) sim.force('labels', labelForce(nodes))
 
   nodeSel.call(drag<SVGGElement, SimNode>()
     .on('start', (ev, n) => { if (!ev.active) sim?.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y; userMoved = true })
@@ -182,7 +202,7 @@ function draw() {
   const fit = () => {
     if (userMoved || !zoomer) return
     const onRoute = routeIds.size ? nodes.filter((n) => routeIds.has(n.id)) : []
-    const box = onRoute.length ? onRoute : nodes
+    const box = walk ? nodes : onRoute.length ? onRoute : nodes
     const pad = onRoute.length ? ROUTE_FIT_PAD : FIT_PAD
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const n of box) {
@@ -211,6 +231,51 @@ function draw() {
   })
   sim.on('end', () => { fallback = true; fit() })
   sim.restart()
+}
+
+// Column per first hop (distinct targets in hop order), so the picture reads as a timeline; prerequisites share the column of the hop that served them.
+function walkColumns(route: GraphHop[], nodes: SimNode[]) {
+  const col = new Map<string, number>()
+  const targets = new Set<string>()
+  let count = 0
+  for (const hop of route) {
+    if (hop.kind === 'query') continue
+    if (!col.has(hop.target)) col.set(hop.target, count++)
+    targets.add(hop.target)
+    for (const p of hop.prerequisites) if (!col.has(p)) col.set(p, col.get(hop.target)!)
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  // A sign off the route sits over the mean column of everything below it.
+  const below = new Map<string, number[]>()
+  const depthOf = new Map<string, number>()
+  let maxDepth = 0
+  for (const n of nodes) {
+    if (n.type !== 'sign') continue
+    let d = 0
+    for (let s = n.parent; s && byId.has(s); s = byId.get(s)!.parent) d++
+    depthOf.set(n.id, d)
+    maxDepth = Math.max(maxDepth, d)
+  }
+  for (const n of nodes) {
+    const c = col.get(n.id)
+    if (c === undefined) continue
+    for (let s = n.type === 'sign' ? n.parent : n.sign_id; s && byId.has(s); s = byId.get(s)!.parent) below.set(s, [...(below.get(s) ?? []), c])
+  }
+  const colOf = (n: SimNode) => {
+    const c = col.get(n.id)
+    if (c !== undefined) return c
+    const xs = below.get(n.id) ?? []
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : (count - 1) / 2
+  }
+  return {
+    count,
+    x: (n: SimNode, w: number) => (w * (colOf(n) + 0.5)) / Math.max(count, 1),
+    y: (n: SimNode, h: number) => {
+      if (n.type === 'sign') return (h / 3) * (0.15 + (0.7 * (depthOf.get(n.id) ?? 0)) / Math.max(maxDepth, 1))
+      if (targets.has(n.id)) return h / 2 + (((col.get(n.id) ?? 0) % 3) - 1) * h * 0.1
+      return (5 * h) / 6
+    },
+  }
 }
 
 function labelWidth(n: SimNode): number {
@@ -276,9 +341,10 @@ function drawRoute(layer: Layer, byId: Map<string, SimNode>, nodeSel: Selection<
 }
 
 const hops = computed<GraphHop[]>(() => graph.value?.route ?? [])
+const walkable = computed(() => !!session.value && hops.value.some((h) => h.kind !== 'query' && titles.value.has(h.target)))
 
 onMounted(draw)
-watch([graph, folded], draw, { flush: 'post' })
+watch([graph, folded, whole], draw, { flush: 'post' })
 onBeforeUnmount(stop)
 </script>
 
@@ -298,6 +364,9 @@ onBeforeUnmount(stop)
       </select>
     </label>
     <RouterLink v-if="focus" to="/graph" class="whole-map">Whole map</RouterLink>
+    <div v-if="walkable" class="depth-toggle">
+      <button type="button" :aria-pressed="whole" @click="whole = !whole">Show whole map with this route</button>
+    </div>
   </div>
   <p class="legend" aria-label="Legend">
     <span class="lg"><svg width="14" height="14" aria-hidden="true"><rect class="g-sign" x="1" y="1" width="12" height="12" rx="3" /></svg>sign</span>
