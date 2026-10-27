@@ -14,7 +14,7 @@ func TestHowToWalkFollowsProtocol(t *testing.T) {
 	}
 	for _, phrase := range []string{
 		"session_start(task, task_type)", "Walk with `look`", "Read in full only when the `read_when` line matches your task",
-		"`search` before `grep`", "Write what you learned", "follow the fix, do not retry unchanged", "End with `session_end`",
+		"`search` before `grep`", "Opening a file an entry anchors is turned back until you have read that entry; read it with read(<id>) and open the file after.", "Write what you learned", "follow the fix, do not retry unchanged", "End with `session_end`",
 	} {
 		if !strings.Contains(string(b), phrase) {
 			t.Errorf("protocol no longer says %q", phrase)

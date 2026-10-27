@@ -43,8 +43,9 @@ tool() {
 }
 
 for rt in claude codex gemini cursor; do
-  tool session_start "{\"task\":\"hook test\",\"task_type\":\"test\",\"runtime_session_id\":\"rt-$rt\"}" >/dev/null
+  tool session_start "{\"task\":\"hook test\",\"task_type\":\"test\",\"runtime_session_id\":\"rt-$rt\"}" > "$tmp/start-$rt.json"
 done
+csid=$(jq -r .session_id "$tmp/start-claude.json")
 sid=$(tool session_start '{"task":"anchor","task_type":"test"}' | jq -r .session_id)
 tool write "{\"session_id\":\"$sid\",\"parent_sign_id\":\"root\",\"kind\":\"decision\",\"decided_by\":\"test\",\"decided_at\":\"2026-10-27\",\"title\":\"Package a\",\"read_when\":\"you touch package a\",\"body\":\"Package a is tiny.\",\"anchors\":[{\"type\":\"file\",\"path\":\"src/a.go\"}]}" >/dev/null
 entry=$(tool look "{\"session_id\":\"$sid\",\"sign_id\":\"root\"}" | jq -r '[.. | .id? // empty | select(. != "trail")][0]')
@@ -56,6 +57,22 @@ out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/a.go"}
 expect "claude off-trail" ".hookSpecificOutput.hookEventName == \"PostToolUse\" and .hookSpecificOutput.additionalContext == \"Trails has an entry for this file: $entry, you touch package a\"" "$out"
 out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/other.txt"}}' "$tmp/repo" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-off-trail.sh")
 expect_empty "claude off-trail unanchored" "$out"
+# Claude Code before-read gate: an unread anchoring entry denies the read with the exact reason, an unanchored path passes, and reading the entry lets the same read through.
+want=$(jq -cn --arg r "Trails has an entry for this file: $entry, you touch package a. Read it with read($entry) first, then open the file." '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}')
+out=$(printf '{"session_id":"rt-claude","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+[ "$out" = "$want" ] || fail "claude pre-read deny: got '$out', want '$want'"
+out=$(printf '{"session_id":"rt-claude","tool_name":"Grep","tool_input":{"pattern":"x","path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+[ "$out" = "$want" ] || fail "claude pre-read deny on Grep path: got '$out'"
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/other.txt"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+expect_empty "claude pre-read unanchored" "$out"
+out=$(printf '{"session_id":"rt-claude","tool_name":"Grep","tool_input":{"pattern":"x"}}' | "$hooks/trails-pre-read.sh")
+expect_empty "claude pre-read without a path" "$out"
+out=$(printf '{"session_id":"nobody","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+expect_empty "pre-read unknown session" "$out"
+tool read "{\"session_id\":\"$csid\",\"entry_id\":\"$entry\",\"depth\":\"summary\"}" >/dev/null
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+expect_empty "claude pre-read after the entry is read" "$out"
+
 out=$(printf '{"session_id":"rt-claude","stop_hook_active":false}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
 expect "claude stop" '.decision == "block" and (.reason | startswith("Trails session still open with 0 gaps: call session_end"))' "$out"
 
@@ -214,7 +231,7 @@ curl -sf "$url/api/projects" | jq -e --arg i "$id3" '[.projects[].id] | index($i
 # An unknown session and an unreachable server both pass through silently.
 out=$(printf '{"session_id":"nobody"}' | "$hooks/trails-stop.sh")
 expect_empty "unknown session stop" "$out"
-for s in trails-session-start trails-off-trail trails-edited trails-stop; do
+for s in trails-session-start trails-pre-read trails-off-trail trails-edited trails-stop; do
   set +e
   out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"src/a.go"}}' | TRAILS_BIN=/nonexistent TRAILS_URL=http://127.0.0.1:1 "$hooks/$s.sh" 2>&1)
   rc=$?

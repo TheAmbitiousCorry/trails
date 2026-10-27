@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/project"
@@ -34,6 +35,7 @@ func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
 		writeJSON(w, http.StatusOK, map[string]any{"projects": out})
 	})))
 	mux.Handle("POST /api/projects", guard(addr, registerProject(reg)))
+	mux.Handle("/api/pre-read", guard(addr, hookJSON(reg, preReadReply{Decision: decisionUnmapped}, preRead)))
 	mux.Handle("/api/off-trail", guard(addr, hookJSON(reg, struct{}{}, offTrail)))
 	mux.Handle("/api/edited", guard(addr, hookJSON(reg, editedReply{Entries: []signpost{}}, edited)))
 	mux.Handle("/api/stop-check", guard(addr, hookJSON(reg, map[string]bool{"open": false}, stopCheck)))
@@ -155,6 +157,66 @@ func str(in map[string]any, key string) string {
 	return strings.TrimSpace(s)
 }
 
+const (
+	decisionChecked    = "checked"
+	decisionTurnedBack = "turned_back"
+	decisionUnmapped   = "unmapped"
+)
+
+// preReadReply is the answer to a hook that asks before a native read. The entry fields are set for checked and turned_back.
+type preReadReply struct {
+	Decision string `json:"decision"`
+	EntryID  string `json:"entry_id,omitempty"`
+	ReadWhen string `json:"read_when,omitempty"`
+}
+
+// preRead decides whether a native read may go through. A read of a path an entry anchors is turned back to the first such entry the session has not read; once the session has read them all it is checked.
+// Every call records an off_trail event with the decision as its result, except a turned_back on a path and entry the session was already turned back from.
+func preRead(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
+	p := str(in, "path")
+	if p == "" {
+		return preReadReply{Decision: decisionUnmapped}, nil
+	}
+	rel := repoRelative(st.Repo(), p)
+	anchors, err := anchoringEntries(ctx, st.DB(), rel)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(anchors, func(i, j int) bool { return anchors[i].EntryID < anchors[j].EntryID })
+	reply := preReadReply{Decision: decisionUnmapped}
+	if len(anchors) > 0 {
+		reply = preReadReply{Decision: decisionChecked, EntryID: anchors[0].EntryID, ReadWhen: anchors[0].ReadWhen}
+	}
+	for _, a := range anchors {
+		var n int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'read' AND result = 'ok' AND target = ?`, sid, a.EntryID).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			reply = preReadReply{Decision: decisionTurnedBack, EntryID: a.EntryID, ReadWhen: a.ReadWhen}
+			break
+		}
+	}
+	shown := "[]"
+	if reply.EntryID != "" {
+		b, _ := json.Marshal([]string{reply.EntryID})
+		shown = string(b)
+	}
+	if reply.Decision == decisionTurnedBack {
+		var n int
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'off_trail' AND result = 'turned_back' AND target = ? AND shown_json = ?`, sid, rel, shown).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			return reply, nil
+		}
+	}
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result, shown_json) VALUES (?, ?, 'off_trail', ?, ?, ?)`, sid, store.Now(), rel, reply.Decision, shown); err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
 type signpost struct {
 	EntryID  string `json:"entry_id"`
 	ReadWhen string `json:"read_when"`
@@ -191,7 +253,17 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
-	rows, err := st.DB().QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
+	all, err := anchoringEntries(ctx, st.DB(), rel)
+	if err != nil {
+		return nil, err
+	}
+	reply.Entries = append(reply.Entries, all...)
+	return reply, nil
+}
+
+// anchoringEntries lists every live entry whose file, range or dir anchor is rel or a directory containing it, oldest first.
+func anchoringEntries(ctx context.Context, db *sql.DB, rel string) ([]signpost, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
 		FROM anchors a JOIN entries e ON e.id = a.entry_id
 		WHERE a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
 		ORDER BY e.created_at, e.id`)
@@ -200,6 +272,7 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	}
 	defer rows.Close()
 	seen := map[string]bool{}
+	var out []signpost
 	for rows.Next() {
 		var id, readWhen, typ, ap, created string
 		if err := rows.Scan(&id, &readWhen, &typ, &ap, &created); err != nil {
@@ -208,10 +281,10 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 		ap = strings.TrimSuffix(path.Clean(ap), "/")
 		if (typ != "dir" && ap == rel || typ == "dir" && strings.HasPrefix(rel, ap+"/")) && !seen[id] {
 			seen[id] = true
-			reply.Entries = append(reply.Entries, signpost{id, readWhen})
+			out = append(out, signpost{id, readWhen})
 		}
 	}
-	return reply, rows.Err()
+	return out, rows.Err()
 }
 
 // repoRelative reports p relative to the repo when it lies under it, else as given.

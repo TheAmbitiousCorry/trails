@@ -6,7 +6,7 @@ Trails works with any agent that speaks MCP. The repo holds three things:
 
 - `server/`: the Go binary. One SQLite database per project, the MCP endpoint, the recorder, two hook endpoints, and the embedded web UI.
 - `protocol/PROTOCOL.md`: the walking protocol, the single source every adapter embeds.
-- `adapters/`: wiring for Claude Code, Codex, Gemini CLI, Cursor, and a generic MCP client. Each is an instructions snippet, an MCP config entry, and hook wiring for the off-trail signpost and the stop check, built on three shared shell scripts.
+- `adapters/`: wiring for Claude Code, Codex, Gemini CLI, Cursor, and a generic MCP client. Each is an instructions snippet, an MCP config entry, and hook wiring for the read gate (a turn-back to the anchoring entry where the runtime has a before-read event, a signpost elsewhere) and the stop check, built on five shared shell scripts.
 
 What the system does is specified in `docs/context/`; start at [the index](docs/context/index.md). Live work is in `docs/plans/`. Intent is in `docs/roadmap.md`.
 
@@ -76,4 +76,4 @@ claude plugin marketplace add TheAmbitiousCorry/trails
 claude plugin install trails@trails
 ```
 
-The plugin carries the walking protocol skill, the `/trail` command, the three hooks and the MCP server entry on 127.0.0.1:7777 (the default port). A machine that needs another port sets `TRAILS_PORT` once, in the `env` block of `~/.claude/settings.json`; that one setting moves the plugin's MCP entry, the hooks and the CLI together. The session-start hook prints the line to add when the port it reaches differs from `TRAILS_PORT`. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the one server if none runs and registers any repo with a committed `.trail/id`.
+The plugin carries the walking protocol skill, the `/trail` command, the hooks and the MCP server entry on 127.0.0.1:7777 (the default port). A machine that needs another port sets `TRAILS_PORT` once, in the `env` block of `~/.claude/settings.json`; that one setting moves the plugin's MCP entry, the hooks and the CLI together. The session-start hook prints the line to add when the port it reaches differs from `TRAILS_PORT`. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the one server if none runs and registers any repo with a committed `.trail/id`.

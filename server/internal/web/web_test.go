@@ -139,6 +139,10 @@ func seed(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 
+	if _, err := st.DB.Exec(`INSERT INTO events (session_id, at, tool, target, result, shown_json) VALUES (?, ?, 'off_trail', 'src/other.go', 'turned_back', '["round-helper"]')`, a.sid, store.Now()); err != nil {
+		t.Fatal(err)
+	}
+
 	b := newAgent(t, f.addr, "find the animal policy", "rt-other")
 	f.other = b.sid
 	b.must("search", map[string]any{"query": "giraffe policy"})
@@ -272,6 +276,9 @@ func TestSessionRouteMarksMissOffTrailAndWrites(t *testing.T) {
 	}
 	if off := m["off_trail"].([]any); len(off) == 0 || off[0].(map[string]any)["entry_id"] != "round-helper" {
 		t.Errorf("off_trail = %v", m["off_trail"])
+	}
+	if off := m["off_trail"].([]any); len(off) != 2 || off[0].(map[string]any)["result"] != "ok" || off[1].(map[string]any)["result"] != "turned_back" || off[1].(map[string]any)["entry_id"] != "round-helper" {
+		t.Errorf("off_trail results = %v", m["off_trail"])
 	}
 	if len(m["touched"].([]any)) != 2 {
 		t.Errorf("touched = %v", m["touched"])

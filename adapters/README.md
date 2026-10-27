@@ -4,7 +4,7 @@ Trails speaks MCP and plain HTTP. Nothing in the server knows which agent is cal
 
 1. **The protocol text** from `../protocol/PROTOCOL.md`, placed where that agent reads project instructions.
 2. **The MCP server entry** in that agent's configuration, pointing at `http://127.0.0.1:7777/mcp` (7777 is the default port; a machine on another port uses it in the URL, and the Claude Code entry reads it from `TRAILS_PORT`).
-3. **Three hooks**, when the agent supports them: a session-start hook that registers the repo with the server (starting it when none runs) and prints the project id and the runtime's session id into context, an after-file-read hook that posts the path to `/api/off-trail` and prints the server's reply, and a stop hook that asks `/api/stop-check` whether the session is open and blocks the turn at most twice.
+3. **Hooks**, when the agent supports them: a session-start hook that registers the repo with the server (starting it when none runs) and prints the project id and the runtime's session id into context, a before-file-read hook that posts the path to `/api/pre-read` and denies the read until the agent has read the entry that anchors it (a runtime with only an after-read event gets a hook that posts to `/api/off-trail` and prints a signpost instead), and a stop hook that asks `/api/stop-check` whether the session is open and blocks the turn at most twice.
 
 The hook scripts are shell and `curl`, so every adapter shares them from `generic/`; the per-agent part is only the event wiring. An agent with no hook support works with pieces 1 and 2 alone: the session times out server-side, its gaps go to the browser queue, and the orient view carries the protocol.
 

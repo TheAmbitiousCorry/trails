@@ -1,11 +1,13 @@
 {
-  "description": "Trails: register the session and start the server if needed, signpost native reads that land on a mapped file, signpost entries anchored to files the agent edits, and hold the turn open while gaps or those entries are unresolved",
+  "description": "Trails: register the session and start the server if needed, turn a native read of a mapped file back to its entry until the agent has read it, signpost entries anchored to files the agent edits, and hold the turn open while gaps or those entries are unresolved",
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-session-start.sh\"", "timeout": 10 } ] }
     ],
+    "PreToolUse": [
+      { "matcher": "Read|Grep|Glob", "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-pre-read.sh\"", "timeout": 5 } ] }
+    ],
     "PostToolUse": [
-      { "matcher": "Read|Grep|Glob", "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-off-trail.sh\"", "timeout": 5 } ] },
       { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-edited.sh\"", "timeout": 5 } ] }
     ],
     "Stop": [

@@ -18,6 +18,9 @@ const { data, error, loading } = useApi<SessionResponse>(() => projectApi(`/sess
 const walk = useApi<GraphResponse>(() => projectApi(`/graph?session=${id.value}`))
 const { layout, choose } = useLayout()
 
+const turnedBack = computed(() => (data.value?.off_trail ?? []).filter((o) => o.result === 'turned_back'))
+const otherReads = computed(() => (data.value?.off_trail ?? []).filter((o) => o.result !== 'turned_back'))
+
 const how = computed(() => {
   const m = new Map<string, string[]>()
   for (const t of data.value?.touched ?? []) m.set(t.id, [...(m.get(t.id) ?? []), t.how])
@@ -170,13 +173,25 @@ const open = (nodeId: string) => {
           <section class="side-block">
             <h2 id="side-h">Off the trail</h2>
             <p v-if="!data.off_trail.length" class="muted small">No native reads were forwarded.</p>
-            <ul class="plain">
-              <li v-for="(o, i) in data.off_trail" :key="i" class="off-row">
-                <code>{{ o.path }}</code>
-                <span v-if="o.entry_id" class="small">anchored by <RouterLink :to="{ name: 'entry', params: { id: o.entry_id } }">{{ o.title }}</RouterLink></span>
-                <span v-else class="muted small">no entry anchors this path</span>
-              </li>
-            </ul>
+            <template v-if="turnedBack.length">
+              <h3 class="small">Turned back</h3>
+              <ul class="plain">
+                <li v-for="(o, i) in turnedBack" :key="i" class="off-row">
+                  <code>{{ o.path }}</code>
+                  <span class="small">sent to <RouterLink :to="{ name: 'entry', params: { id: o.entry_id } }">{{ o.title || o.entry_id }}</RouterLink> first</span>
+                </li>
+              </ul>
+            </template>
+            <template v-if="otherReads.length">
+              <h3 v-if="turnedBack.length" class="small">Other reads</h3>
+              <ul class="plain">
+                <li v-for="(o, i) in otherReads" :key="i" class="off-row">
+                  <code>{{ o.path }}</code>
+                  <span v-if="o.entry_id" class="small">anchored by <RouterLink :to="{ name: 'entry', params: { id: o.entry_id } }">{{ o.title }}</RouterLink></span>
+                  <span v-else class="muted small">no entry anchors this path</span>
+                </li>
+              </ul>
+            </template>
           </section>
           <section class="side-block">
             <h2>Written or confirmed</h2>

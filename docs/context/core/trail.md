@@ -5,7 +5,7 @@ last-verified: 2026-10-27
 
 # Trail
 
-The trail is the record of what every reader did. The MCP, the three hook endpoints, the sweep and the browser's sign creation write it; nothing else does. Humans read it in the browser.
+The trail is the record of what every reader did. The MCP, the four hook endpoints, the sweep and the browser's sign creation write it; nothing else does. Humans read it in the browser.
 
 ## Sessions
 
@@ -25,7 +25,7 @@ One row per call, append-only:
 | `result` | `ok`, `refused:<rule>`, `miss`, `error` |
 | `shown` | for search: the ids returned; for `write_scores`: the measured scores as JSON. A `read` that serves prerequisites logs each as its own `read` event right after the requested one |
 
-`off_trail` events come from a runtime's after-read hook, wired per [adapters](./adapters.md), that forwards native file reads and searches with the path; Codex has no such hook and records none. They are how a bypass of the map becomes visible, and they feed gap detection. When the path is anchored by an entry, the hook's reply names that entry, see [mcp](./mcp.md#teaching-the-protocol).
+`off_trail` events come from a runtime's hook, wired per [adapters](./adapters.md), that forwards native file reads and searches with the path; Codex has no such hook and records none. They are how a bypass of the map becomes visible, and they feed gap detection. The target is the repo-relative path. A runtime with a before-read hook asks the server before the read: the `result` column is then `checked` (an entry anchors the path and the session has read every such entry, any depth, `ok`), `turned_back` (an entry anchors the path and the session has not read it; the read is refused and pointed at the first such entry by id) or `unmapped` (no entry anchors the path), and `shown` holds the id of the anchoring entry for `checked` and `turned_back`. A turned-back read counts once however many attempts follow before the entry is read: a `turned_back` on a path and entry the session already has a `turned_back` event for records nothing new. A runtime with only an after-read hook records `ok`, and when the path is anchored its reply names the entry as a signpost, see [mcp](./mcp.md#teaching-the-protocol); there the gate is a signpost, not a turn-back.
 
 `edit` events come from a runtime's after-edit hook, wired per [adapters](./adapters.md), that forwards native file edits with the path made repo-relative; the target is that path. Runtimes with no such hook record none.
 

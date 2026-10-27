@@ -267,3 +267,89 @@ func TestStopCheckCarriesEdits(t *testing.T) {
 		t.Errorf("third check: %v", got)
 	}
 }
+
+func offTrailRows(t *testing.T, st *store.Store, sid, result string) int {
+	t.Helper()
+	var n int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE tool = 'off_trail' AND session_id = ? AND result = ?`, sid, result).Scan(&n)
+	return n
+}
+
+func TestPreReadEndpoint(t *testing.T) {
+	st, addr, repo := startRepoServer(t)
+	if err := os.MkdirAll(filepath.Join(repo, "src", "billing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "billing", "round.go"), []byte("package billing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := newAgent(t, addr, "rt-pre")
+	res, err := a.raw("write", map[string]any{"parent_sign_id": "root", "kind": "decision", "decided_by": "ana", "decided_at": "2026-10-27", "title": "Billing rounding", "read_when": "you change invoice rounding",
+		"body": "Rounding lives in one file.", "anchors": []map[string]any{{"type": "file", "path": "src/billing/round.go"}}})
+	if err != nil || res.IsError {
+		t.Fatalf("write: %v %v", err, res.Content[0])
+	}
+	var id string
+	if err := st.DB.QueryRow(`SELECT entry_id FROM anchors WHERE path_or_url = 'src/billing/round.go'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	pre := func(runtime, p string) map[string]any {
+		return postAPI(t, addr, "/api/pre-read", map[string]any{"runtime_session_id": runtime, "path": p})
+	}
+
+	// The agent wrote the entry but has not read it: the read is turned back, once however many attempts.
+	for _, p := range []string{filepath.Join(repo, "src/billing/round.go"), "src/billing/round.go", "src/billing/round.go"} {
+		got := pre("rt-pre", p)
+		if got["decision"] != "turned_back" || got["entry_id"] != id || got["read_when"] != "you change invoice rounding" {
+			t.Errorf("unread %s = %v", p, got)
+		}
+	}
+	if n := offTrailRows(t, st, a.sid, "turned_back"); n != 1 {
+		t.Errorf("turned_back recorded %d times, want 1", n)
+	}
+	var target, shown string
+	st.DB.QueryRow(`SELECT target, shown_json FROM events WHERE tool = 'off_trail' AND result = 'turned_back' AND session_id = ?`, a.sid).Scan(&target, &shown)
+	if target != "src/billing/round.go" || shown != `["`+id+`"]` {
+		t.Errorf("turned_back row = %q %q", target, shown)
+	}
+
+	// A summary read counts: after it the same path is checked, and each call records a row.
+	a.ok("read", map[string]any{"entry_id": id, "depth": "summary"})
+	for i := 0; i < 2; i++ {
+		if got := pre("rt-pre", "src/billing/round.go"); got["decision"] != "checked" || got["entry_id"] != id {
+			t.Errorf("after read = %v", got)
+		}
+	}
+	if n := offTrailRows(t, st, a.sid, "checked"); n != 2 {
+		t.Errorf("checked recorded %d times, want 2", n)
+	}
+
+	// A new session has not read it, so it is turned back again and records its own row.
+	b := newAgent(t, addr, "rt-pre-b")
+	if got := pre("rt-pre-b", "src/billing/round.go"); got["decision"] != "turned_back" {
+		t.Errorf("second session = %v", got)
+	}
+	if n := offTrailRows(t, st, b.sid, "turned_back"); n != 1 {
+		t.Errorf("second session recorded %d turn-backs", n)
+	}
+
+	// A plain path is unmapped and has no entry fields.
+	got := pre("rt-pre", "docs/plain.md")
+	if got["decision"] != "unmapped" || got["entry_id"] != nil {
+		t.Errorf("plain path = %v", got)
+	}
+	if n := offTrailRows(t, st, a.sid, "unmapped"); n != 1 {
+		t.Errorf("unmapped recorded %d times", n)
+	}
+
+	// No session matched: unmapped, nothing recorded.
+	var before, after int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE tool = 'off_trail'`).Scan(&before)
+	if got := pre("nope", "src/billing/round.go"); got["decision"] != "unmapped" || got["entry_id"] != nil {
+		t.Errorf("no session = %v", got)
+	}
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE tool = 'off_trail'`).Scan(&after)
+	if before != after {
+		t.Errorf("no session recorded %d rows", after-before)
+	}
+}

@@ -6,7 +6,7 @@
     {
       "name": "trails",
       "source": "./",
-      "description": "The walking protocol skill, the /trail command, the session-start, off-trail and stop hooks, and the MCP server entry. Needs the trails binary on PATH.",
+      "description": "The walking protocol skill, the /trail command, the session-start, pre-read, edited and stop hooks, and the MCP server entry. Needs the trails binary on PATH.",
       "category": "workflow",
       "keywords": ["wiki", "knowledge", "mcp", "trails", "context", "hooks"]
     }

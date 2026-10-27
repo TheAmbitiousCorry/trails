@@ -1,11 +1,12 @@
 # Shared hook scripts
 
-Four POSIX `sh` scripts that need only `curl` and `jq`. Copy this directory to `.trail/hooks/` in the project and point each runtime's hook wiring at them. All four exit 0 with no output when `jq` or `curl` is missing, the server is unreachable, or no session matches, so a stopped server never blocks a turn.
+Five POSIX `sh` scripts that need only `curl` and `jq`. Copy this directory to `.trail/hooks/` in the project and point each runtime's hook wiring at them. All five exit 0 with no output when `jq` or `curl` is missing, the server is unreachable, or no session matches, so a stopped server never blocks a turn.
 
 | Script | Event | Does |
 |---|---|---|
 | `trails-session-start.sh` | session start | When the repo has `.trail/id` at or above it, registers the repo with the server, starting the server first when none answers; under Claude Code prints the `TRAILS_PORT` line when the server it reached is on another port than the MCP entry; prints `Trails project: <id>` and `Trails runtime_session_id: <id>` into the agent's context. |
-| `trails-off-trail.sh` | after a file read | Posts the path to `/api/off-trail`; prints a signpost when an entry anchors it. |
+| `trails-pre-read.sh` | before a file read | Posts the path to `/api/pre-read`; when the reply is `turned_back`, denies the read in the Claude Code `PreToolUse` form with the reason `Trails has an entry for this file: <id>, <read_when>. Read it with read(<id>) first, then open the file.`; prints nothing on `checked` or `unmapped`. |
+| `trails-off-trail.sh` | after a file read, for runtimes with no before-read event | Posts the path to `/api/off-trail`; prints a signpost when an entry anchors it. Not wired where `trails-pre-read.sh` is. |
 | `trails-edited.sh` | after a file edit | Posts the path to `/api/edited`; prints the entries anchored to it, to update or confirm before the session ends. |
 | `trails-stop.sh` | stop | Posts to `/api/stop-check`; prints the runtime's block form while gaps or edited entries remain. |
 

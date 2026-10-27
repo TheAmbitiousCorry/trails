@@ -70,6 +70,7 @@ type routeStep struct {
 type offTrailRow struct {
 	At      string `json:"at"`
 	Path    string `json:"path"`
+	Result  string `json:"result"`
 	EntryID string `json:"entry_id"`
 	Title   string `json:"title"`
 }
@@ -197,8 +198,11 @@ func buildRoute(ctx context.Context, db *sql.DB, id string) (route []routeStep, 
 		case "session_start", "write_scores", "sweep", "edit":
 			continue
 		case "off_trail":
-			row := offTrailRow{At: ev.at, Path: ev.target}
-			if eid, ok, err := anchoredEntry(ctx, db, ev.target); err != nil {
+			row := offTrailRow{At: ev.at, Path: ev.target, Result: ev.result}
+			if ids := decodeTags(ev.shown); len(ids) > 0 {
+				// A pre-read event names the entry it pointed at.
+				row.EntryID, row.Title = ids[0], entryTitle[ids[0]]
+			} else if eid, ok, err := anchoredEntry(ctx, db, ev.target); err != nil {
 				return nil, nil, nil, err
 			} else if ok {
 				row.EntryID, row.Title = eid, entryTitle[eid]

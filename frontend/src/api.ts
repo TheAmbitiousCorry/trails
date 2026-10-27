@@ -149,7 +149,7 @@ export interface RouteStep {
 export interface SessionResponse {
   session: SessionRow
   route: RouteStep[]
-  off_trail: { at: string; path: string; entry_id: string; title: string }[]
+  off_trail: { at: string; path: string; result: string; entry_id: string; title: string }[]
   touched: { id: string; title: string; tier: Tier; how: 'wrote' | 'confirmed'; at: string }[]
 }
 
