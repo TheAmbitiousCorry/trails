@@ -45,7 +45,7 @@ A sign is created with `write_sign` under an existing parent, with a title and a
 
 ## Prerequisites
 
-An entry may list `requires`: entry ids a reader needs before this one makes sense. A `read` of the entry at depth `full` returns the whole chain in full, earliest prerequisite first, then the entry itself. Prerequisites this session has already read at `full` are listed by id and title instead of repeated. Nothing in the chain is summarised, truncated or capped: a prerequisite is a declaration that the entry cannot be understood without it, so it is required reading by definition.
+An entry may list `requires`: entry ids a reader needs before this one makes sense. A `read` of the entry at depth `full` returns the whole chain in full, earliest prerequisite first, then the entry itself. Prerequisites this session has already read at `full` are listed by id, title, tier and `read_when` instead of repeated, with a note that they still apply to the entry and are to be read directly if no longer in the reader's context. Nothing in the chain is summarised, truncated or capped: a prerequisite is a declaration that the entry cannot be understood without it, so it is required reading by definition.
 
 The response states its total lines, so the cost of the hop is visible. The sign page shows each entry's chain length, so a chain that has grown long is corrected by rewriting the entry's `requires` list, never by the server trimming it at read time.
 

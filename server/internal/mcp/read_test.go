@@ -128,6 +128,19 @@ func TestReadServesRequiresChainAndEdges(t *testing.T) {
 	if got := ids(t, second["already_read"]); len(got) != 2 || got[0] != a || got[1] != b {
 		t.Errorf("already_read = %v", got)
 	}
+	for i, r := range second["already_read"].([]any) {
+		m := r.(map[string]any)
+		title := []string{"A", "B"}[i]
+		if m["title"] != title || m["read_when"] != "when "+title || m["tier"] == nil || m["tier"] == "" {
+			t.Errorf("already_read item = %v", m)
+		}
+	}
+	if second["prerequisite_note"] != "These prerequisites still apply to this entry. They were served earlier in this session; read one directly if it is no longer in your context." {
+		t.Errorf("prerequisite_note = %v", second["prerequisite_note"])
+	}
+	if _, has := first["prerequisite_note"]; has {
+		t.Error("read with nothing already read carries a note")
+	}
 
 	var n int
 	st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'read' AND depth = 'full' AND target IN (?, ?)`, sid, a, b).Scan(&n)

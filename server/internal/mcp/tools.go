@@ -121,26 +121,31 @@ type entryOut struct {
 }
 
 type entryRef struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Tier     string `json:"tier"`
+	ReadWhen string `json:"read_when"`
 }
+
+const prerequisiteNote = "These prerequisites still apply to this entry. They were served earlier in this session; read one directly if it is no longer in your context."
 
 // readOut is the requested entry; Prerequisites, served in full, come before it in reading order.
 type readOut struct {
-	Prerequisites []entryOut     `json:"prerequisites,omitempty"`
-	AlreadyRead   []entryRef     `json:"already_read,omitempty"`
-	Related       []entries.Edge `json:"related,omitempty"`
-	Backlinks     []entries.Edge `json:"backlinks,omitempty"`
-	ID            string         `json:"id"`
-	Title         string         `json:"title"`
-	Kind          string         `json:"kind"`
-	Tier          string         `json:"tier"`
-	Tags          []string       `json:"tags"`
-	Anchors       []anchorOut    `json:"anchors"`
-	ReadWhen      string         `json:"read_when"`
-	Untrusted     untrusted      `json:"untrusted"`
-	Notice        string         `json:"notice,omitempty"`
-	Lines         int            `json:"lines"`
+	Prerequisites    []entryOut     `json:"prerequisites,omitempty"`
+	AlreadyRead      []entryRef     `json:"already_read,omitempty"`
+	PrerequisiteNote string         `json:"prerequisite_note,omitempty"`
+	Related          []entries.Edge `json:"related,omitempty"`
+	Backlinks        []entries.Edge `json:"backlinks,omitempty"`
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	Kind             string         `json:"kind"`
+	Tier             string         `json:"tier"`
+	Tags             []string       `json:"tags"`
+	Anchors          []anchorOut    `json:"anchors"`
+	ReadWhen         string         `json:"read_when"`
+	Untrusted        untrusted      `json:"untrusted"`
+	Notice           string         `json:"notice,omitempty"`
+	Lines            int            `json:"lines"`
 }
 
 type lookIn struct {
@@ -340,7 +345,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "read",
 		Description: "Read one entry by id. Returns its title, kind, tier, tags, anchors, read_when and body as Markdown inside `untrusted`, " +
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
-			"depth summary returns the first paragraph, full returns the whole body.",
+			"depth summary returns the first paragraph, full returns the whole body. " +
+			"At depth full, prerequisites already served in this session are listed under `already_read`, not repeated; if one is no longer in your context, read it directly.",
 	}, trail.Record(rec, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn) (*sdk.CallToolResult, readOut, error) {
 		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, readOut{}, err
@@ -609,7 +615,7 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 				return nil, out, err
 			}
 			if seen {
-				out.AlreadyRead = append(out.AlreadyRead, entryRef{p.ID, p.Title})
+				out.AlreadyRead = append(out.AlreadyRead, entryRef{p.ID, p.Title, p.Tier, p.ReadWhen})
 				continue
 			}
 			if err := trail.LogRead(ctx, db, in.SessionID, id, "full"); err != nil {
@@ -617,6 +623,9 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 			}
 			out.Prerequisites = append(out.Prerequisites, p)
 		}
+	}
+	if len(out.AlreadyRead) > 0 {
+		out.PrerequisiteNote = prerequisiteNote
 	}
 	out.Related, out.Backlinks, err = entries.Edges(ctx, db, in.EntryID)
 	if err != nil {
