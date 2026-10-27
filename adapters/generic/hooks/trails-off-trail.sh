@@ -3,6 +3,7 @@
 # TRAILS_PATH_FIELD names the stdin JSON field holding the path; by default the first present of tool_input.file_path, tool_input.path (Grep and Glob) and tool_response.file.filePath.
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)
+trails_init "$input"
 id=$(trails_session_id "$input")
 [ -n "$id" ] || exit 0
 if [ -n "$TRAILS_PATH_FIELD" ]; then

@@ -9,6 +9,8 @@ pid=
 pid2=
 cleanup() { [ -z "$pid" ] || kill "$pid" 2>/dev/null || true; [ -z "$pid2" ] || kill "$pid2" 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT
+# The hooks read these; a developer shell inside Claude Code sets them.
+unset CLAUDE_PROJECT_DIR TRAILS_PORT TRAILS_URL
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # expect LABEL JQ_FILTER OUTPUT: the filter must print true on the JSON output.
@@ -131,6 +133,45 @@ out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome 
 out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome TRAILS_URL=http://127.0.0.1:$aport TRAILS_BIN=/nonexistent/trails "$hooks/trails-session-start.sh")
 [ "$out" = "Trails: no server and no binary; see adapters/README.md
 Trails runtime_session_id: rt-auto" ] || fail "no server, no binary: got '$out'"
+
+# Port file: .trail/port moves the autostarted server to that port, and the Claude Code mismatch line names the settings fix.
+mkdir -p "$tmp/pf/.trail"
+echo 'portfile' > "$tmp/pf/.trail/id"
+pport=$(( aport + 1 ))
+[ "$pport" -lt 65535 ] || pport=$(( aport - 2 ))
+echo "$pport" > "$tmp/pf/.trail/port"
+rm -f "$tmp/fake/args" "$tmp/fake/pid"
+pf_hook() { # EXTRA_ENV... -> session-start with no TRAILS_URL, repo from the payload cwd
+  printf '{"session_id":"rt-pf","cwd":"%s"}' "$tmp/pf" | env -u TRAILS_URL HOME=$fakehome TRAILS_BIN=$tmp/fake/trails "$@" "$hooks/trails-session-start.sh"
+}
+out=$(pf_hook)
+pid2=$(cat "$tmp/fake/pid" 2>/dev/null || true)
+[ "$out" = "Trails runtime_session_id: rt-pf" ] || fail "port file session-start: got '$out'"
+[ "$(cat "$tmp/fake/args")" = "serve --repo $tmp/pf --addr 127.0.0.1:$pport" ] || fail "port file args: got '$(cat "$tmp/fake/args")'"
+curl -sf --max-time 1 -o /dev/null "http://127.0.0.1:$pport/api/map" || fail "server not on the port file's port"
+# A hook with the server up reads the same port: stop-check on an unknown session is a quiet pass, so use the common helper directly.
+got=$(env -u TRAILS_URL sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/pf")
+[ "$got" = "http://127.0.0.1:$pport" ] || fail "common TRAILS_URL from port file: got '$got'"
+got=$(env -u TRAILS_URL sh -c '. "$1/trails-common.sh"; trails_init "{}"; printf %s "$TRAILS_URL"' sh "$hooks")
+[ "$got" = "http://127.0.0.1:7777" ] || fail "common TRAILS_URL default: got '$got'"
+got=$(mkdir -p "$tmp/bad/.trail"; echo 99999 > "$tmp/bad/.trail/port"; env -u TRAILS_URL sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/bad")
+[ "$got" = "http://127.0.0.1:7777" ] || fail "common TRAILS_URL with bad port file: got '$got'"
+[ -z "${pid2:-}" ] || { kill "$pid2" 2>/dev/null || true; pid2=; }
+
+# Mismatch line (server already up on the port file's port is not needed: the line is independent of autostart).
+mm="Trails: this repo's .trail/port is $pport but the MCP entry points at 7777; add \"env\": {\"TRAILS_PORT\": \"$pport\"} to .claude/settings.json"
+export_url="TRAILS_URL=http://127.0.0.1:$aport"
+out=$(pf_hook "$export_url" CLAUDE_PROJECT_DIR="$tmp/pf" TRAILS_BIN=/nonexistent/trails)
+[ "$out" = "$mm
+Trails runtime_session_id: rt-pf" ] || [ "$out" = "Trails: no server and no binary; see adapters/README.md
+$mm
+Trails runtime_session_id: rt-pf" ] || fail "mismatch line, TRAILS_PORT unset: got '$out'"
+out=$(pf_hook "$export_url" CLAUDE_PROJECT_DIR="$tmp/pf" TRAILS_PORT=$pport TRAILS_BIN=/nonexistent/trails)
+case "$out" in *"MCP entry points at"*) fail "mismatch line printed though TRAILS_PORT matches: '$out'" ;; esac
+out=$(pf_hook "$export_url" CLAUDE_PROJECT_DIR="$tmp/pf" TRAILS_PORT=1234 TRAILS_BIN=/nonexistent/trails)
+case "$out" in *"MCP entry points at 1234; add"*) ;; *) fail "mismatch line, TRAILS_PORT differs: got '$out'" ;; esac
+out=$(pf_hook "$export_url" TRAILS_BIN=/nonexistent/trails)
+case "$out" in *"MCP entry points at"*) fail "mismatch line printed outside Claude Code: '$out'" ;; esac
 
 # An unknown session and an unreachable server both pass through silently.
 out=$(printf '{"session_id":"nobody"}' | "$hooks/trails-stop.sh")

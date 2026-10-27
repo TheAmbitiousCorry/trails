@@ -5,6 +5,7 @@
 ```json
 { "mcpServers": { "trails": { "url": "http://127.0.0.1:7777/mcp" } } }
 ```
+   This runtime's MCP config cannot read an environment variable, so 7777 is the default port and a repo that pins another in `.trail/port` edits the URL by hand to match. Claude Code's hint line (`Trails: this repo's .trail/port is <n> but the MCP entry points at <m>; ...`) does not apply here.
 3. Copy `../generic/hooks/` to `.trail/hooks/` in the project (the wiring below expects that path).
 4. Copy `hooks.json` from this directory to `.cursor/hooks.json`, or merge its `hooks` into yours. It wires `sessionStart`, `postToolUse` (matcher `Read`), `afterFileEdit` and `stop`, and reads the session id from `conversation_id`. The commands are relative to the project root.
 

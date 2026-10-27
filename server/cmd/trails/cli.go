@@ -10,11 +10,49 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 )
 
 const defaultAddr = "127.0.0.1:7777"
+
+// repoAddr is the address of a repo's server: 127.0.0.1 on the port in <repo>/.trail/port, else defaultAddr.
+func repoAddr(repo string) (string, error) {
+	file := filepath.Join(repo, ".trail", "port")
+	raw, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return defaultAddr, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s: %v", file, err)
+	}
+	text := strings.TrimSpace(string(raw))
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("%s: want one port number from 1 to 65535, got %q", file, text)
+	}
+	return "127.0.0.1:" + strconv.Itoa(n), nil
+}
+
+// pickAddr returns the explicit --addr when one was given, else the address from the repo's port file.
+func pickAddr(fs *flag.FlagSet, addr, repo string) (string, error) {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "addr" {
+			given = true
+		}
+	})
+	if given {
+		return addr, nil
+	}
+	if repo == "" {
+		repo, _ = os.Getwd()
+	}
+	return repoAddr(repo)
+}
 
 var errNoServer = errors.New("no server")
 
@@ -72,10 +110,16 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	target, rest := splitTarget(args)
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr, "server address")
+	addrFlag := fs.String("addr", defaultAddr, "server address (default from .trail/port)")
+	repo := fs.String("repo", "", "repository whose .trail/port names the address (default the working directory)")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
+	resolved, err := pickAddr(fs, *addrFlag, *repo)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	addr := &resolved
 	if target == "" && fs.NArg() > 0 {
 		target = fs.Arg(0)
 	}
@@ -134,10 +178,16 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr, "server address")
+	addrFlag := fs.String("addr", defaultAddr, "server address (default from .trail/port)")
+	repo := fs.String("repo", "", "repository whose .trail/port names the address (default the working directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	resolved, err := pickAddr(fs, *addrFlag, *repo)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	addr := &resolved
 	var m struct {
 		Project struct {
 			Title string `json:"title"`

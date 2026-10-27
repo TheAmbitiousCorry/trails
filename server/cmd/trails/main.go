@@ -63,11 +63,15 @@ func serve(args []string) {
 	cwd, _ := os.Getwd()
 	userHome, _ := os.UserHomeDir()
 	repo := flag.String("repo", cwd, "repository to serve")
-	addr := flag.String("addr", defaultAddr, "listen address")
+	addrFlag := flag.String("addr", defaultAddr, "listen address (default from <repo>/.trail/port)")
 	home := flag.String("home", filepath.Join(userHome, ".trail"), "Trail home")
 	flag.CommandLine.Parse(args)
 
-	if err := run(*repo, *addr, *home); err != nil {
+	addr, err := pickAddr(flag.CommandLine, *addrFlag, *repo)
+	if err != nil {
+		log.Fatalf("trails: %v", err)
+	}
+	if err := run(*repo, addr, *home); err != nil {
 		log.Fatal(err)
 	}
 }

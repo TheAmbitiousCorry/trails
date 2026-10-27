@@ -3,6 +3,7 @@
 # TRAILS_PATH_FIELD names the stdin JSON field holding the path; by default tool_input.file_path, else tool_input.notebook_path (NotebookEdit).
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)
+trails_init "$input"
 id=$(trails_session_id "$input")
 [ -n "$id" ] || exit 0
 if [ -n "$TRAILS_PATH_FIELD" ]; then

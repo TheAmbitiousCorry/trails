@@ -16,7 +16,7 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | Path field on read | verified: Read `tool_input.file_path`, Grep and Glob `tool_input.path` | n/a | unverified, tool param is `file_path` | unverified |
 | Path field on edit | `tool_input.file_path` | n/a | n/a | `file_path` (unverified) |
 
-The session-start hook reads the repo from stdin `cwd` when the payload has it and from its own working directory otherwise; the field is unverified outside Claude Code.
+All four hook scripts take the repo from `CLAUDE_PROJECT_DIR` when set, else stdin `cwd` when the payload has it, else their own working directory; `cwd` is unverified outside Claude Code. The repo's `.trail/port` gives the server address.
 
 Known limits: Codex gets the stop check only. Gemini CLI's docs carry a notice that it was replaced by Antigravity CLI in June 2026; check the target before wiring. Cursor's stop hook cannot block, it schedules a follow-up turn, which the server's `blocks` counter still bounds.
 

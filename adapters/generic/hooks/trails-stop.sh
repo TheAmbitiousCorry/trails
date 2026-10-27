@@ -3,6 +3,7 @@
 # TRAILS_BLOCK_FORMAT is block (default), deny or cursor.
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)
+trails_init "$input"
 id=$(trails_session_id "$input")
 [ -n "$id" ] || exit 0
 reply=$(jq -cn --arg s "$id" '{runtime_session_id: $s}' | post stop-check) || exit 0

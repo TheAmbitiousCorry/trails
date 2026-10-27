@@ -4,7 +4,7 @@ Four POSIX `sh` scripts that need only `curl` and `jq`. Copy this directory to `
 
 | Script | Event | Does |
 |---|---|---|
-| `trails-session-start.sh` | session start | Starts the server when the repo has `.trail/id` and none answers; prints `Trails runtime_session_id: <id>` into the agent's context. |
+| `trails-session-start.sh` | session start | Starts the server (on the repo's port) when the repo has `.trail/id` and none answers; under Claude Code prints the `TRAILS_PORT` line when `.trail/port` and the MCP entry disagree; prints `Trails runtime_session_id: <id>` into the agent's context. |
 | `trails-off-trail.sh` | after a file read | Posts the path to `/api/off-trail`; prints a signpost when an entry anchors it. |
 | `trails-edited.sh` | after a file edit | Posts the path to `/api/edited`; prints the entries anchored to it, to update or confirm before the session ends. |
 | `trails-stop.sh` | stop | Posts to `/api/stop-check`; prints the runtime's block form while gaps or edited entries remain. |
@@ -13,7 +13,7 @@ Environment, set in the hook command:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TRAILS_URL` | `http://127.0.0.1:7777` | Server address. |
+| `TRAILS_URL` | `http://127.0.0.1:<port>`, the port from `<repo>/.trail/port`, else 7777 (the default) | Server address. The repo is `CLAUDE_PROJECT_DIR` when set, else the payload `cwd`, else the working directory. A file that is not a port is ignored. |
 | `TRAILS_BIN` | `trails` | Binary the session-start hook runs as `serve --repo <repo> --addr <addr>` when it autostarts. |
 | `TRAILS_SESSION_FIELD` | `session_id` | Dotted stdin JSON path holding the runtime session id. |
 | `TRAILS_SESSION_ENV` | unset | Name of an environment variable that holds the id; wins over the stdin field when set. |

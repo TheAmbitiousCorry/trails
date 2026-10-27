@@ -1,6 +1,4 @@
 # Sourced by the trails-*.sh hook scripts. Needs only sh, curl and jq.
-TRAILS_URL=${TRAILS_URL:-http://127.0.0.1:7777}
-
 # The hook scripts never fail a turn: a missing tool or unreachable server ends the script quietly.
 command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 || exit 0
 
@@ -30,4 +28,25 @@ trails_session_id() {
     *) eval "v=\${$TRAILS_SESSION_ENV:-}"; [ -z "$v" ] || { printf '%s' "$v"; return; } ;;
   esac
   printf '%s' "$1" | field_of "${TRAILS_SESSION_FIELD:-session_id}"
+}
+
+# trails_init JSON sets TRAILS_REPO and, when TRAILS_URL is unset, TRAILS_URL from <repo>/.trail/port (7777 when the file is absent or not a port).
+# The repo is CLAUDE_PROJECT_DIR when set, else the payload's cwd, else the working directory. Every script calls this right after reading stdin.
+trails_init() {
+  TRAILS_REPO=${CLAUDE_PROJECT_DIR:-}
+  [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$(printf '%s' "$1" | field_of cwd)
+  [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$PWD
+  TRAILS_FILE_PORT=$(trails_file_port "$TRAILS_REPO")
+  TRAILS_URL=${TRAILS_URL:-http://127.0.0.1:${TRAILS_FILE_PORT:-7777}}
+}
+
+# trails_file_port REPO prints the port in REPO/.trail/port, or nothing when the file is absent or not a number from 1 to 65535.
+trails_file_port() {
+  [ -f "$1/.trail/port" ] || return 0
+  p=$(tr -d ' \t\r\n' < "$1/.trail/port" 2>/dev/null) || return 0
+  case "$p" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$p" -ge 1 ] 2>/dev/null && [ "$p" -le 65535 ] 2>/dev/null && printf '%s' "$p"
+  return 0
 }

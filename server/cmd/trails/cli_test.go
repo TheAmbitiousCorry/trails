@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -80,5 +82,84 @@ func TestStatus(t *testing.T) {
 	}
 	if out.String() != "Demo: 12 entries, 3 open gaps\n" {
 		t.Fatalf("out %q", out.String())
+	}
+}
+
+func repoWithPort(t *testing.T, contents string) string {
+	t.Helper()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".trail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if contents != "" {
+		if err := os.WriteFile(filepath.Join(repo, ".trail", "port"), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+func TestRepoAddr(t *testing.T) {
+	cases := []struct{ name, file, want string }{
+		{"absent file is the default", "", defaultAddr},
+		{"port file", "9123\n", "127.0.0.1:9123"},
+		{"surrounding space", "  9123  \n\n", "127.0.0.1:9123"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := repoAddr(repoWithPort(t, c.file))
+			if err != nil || got != c.want {
+				t.Fatalf("got %q, %v, want %q", got, err, c.want)
+			}
+		})
+	}
+}
+
+func TestBadPortFile(t *testing.T) {
+	t.Setenv("TRAILS_NO_BROWSER", "1")
+	for _, bad := range []string{"abc\n", "0", "65536", "-1", "80 81", "127.0.0.1:9000"} {
+		repo := repoWithPort(t, bad)
+		file := filepath.Join(repo, ".trail", "port")
+		if _, err := repoAddr(repo); err == nil || !strings.Contains(err.Error(), file) {
+			t.Fatalf("%q: error %v does not name %s", bad, err, file)
+		}
+		var out, errb bytes.Buffer
+		if code := runStatus([]string{"--repo", repo}, &out, &errb); code != 1 || !strings.Contains(errb.String(), file) {
+			t.Fatalf("%q: status code %d, stderr %q", bad, code, errb.String())
+		}
+		errb.Reset()
+		if code := runOpen([]string{"--repo", repo}, &out, &errb); code != 1 || !strings.Contains(errb.String(), file) {
+			t.Fatalf("%q: open code %d, stderr %q", bad, code, errb.String())
+		}
+	}
+}
+
+func TestDefaultAddrFromPortFile(t *testing.T) {
+	t.Setenv("TRAILS_NO_BROWSER", "1")
+	addr := fakeServer(t, `{"sessions":[]}`)
+	port := addr[strings.LastIndex(addr, ":")+1:]
+	repo := repoWithPort(t, port+"\n")
+
+	var out, errb bytes.Buffer
+	if code := runStatus([]string{"--repo", repo}, &out, &errb); code != 0 || out.String() != "Demo: 12 entries, 3 open gaps\n" {
+		t.Fatalf("status code %d, out %q, stderr %q", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := runOpen([]string{"map", "--repo", repo}, &out, &errb); code != 0 || out.String() != "http://"+addr+"/\n" {
+		t.Fatalf("open code %d, out %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	// The working directory is the repo when --repo is absent.
+	t.Chdir(repo)
+	out.Reset()
+	if code := runStatus(nil, &out, &errb); code != 0 {
+		t.Fatalf("status from cwd code %d, stderr %q", code, errb.String())
+	}
+
+	// An explicit --addr wins over the file, even a bad one.
+	bad := repoWithPort(t, "nope")
+	out.Reset()
+	if code := runStatus([]string{"--repo", bad, "--addr", addr}, &out, &errb); code != 0 {
+		t.Fatalf("explicit addr code %d, stderr %q", code, errb.String())
 	}
 }
