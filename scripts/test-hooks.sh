@@ -77,6 +77,18 @@ tool read "{\"session_id\":\"$csid\",\"entry_id\":\"$entry\",\"depth\":\"summary
 out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
 expect_empty "claude pre-read after the entry is read" "$out"
 
+# Two entries anchor one file: the deny lists both by id in id order, and reading either one lets the read through.
+echo 'package multi' > "$tmp/repo/src/multi.go"
+m1=$(tool write "{\"session_id\":\"$sid\",\"parent_sign_id\":\"root\",\"kind\":\"decision\",\"decided_by\":\"test\",\"decided_at\":\"2026-10-27\",\"title\":\"Multi one\",\"read_when\":\"you touch multi one\",\"body\":\"Rounding is set in one function.\",\"anchors\":[{\"type\":\"file\",\"path\":\"src/multi.go\"}]}" | jq -r .entry_id)
+m2=$(tool write "{\"session_id\":\"$sid\",\"parent_sign_id\":\"root\",\"kind\":\"decision\",\"decided_by\":\"test\",\"decided_at\":\"2026-10-27\",\"title\":\"Multi two\",\"read_when\":\"you touch multi two\",\"body\":\"Tax rates live in a separate table.\",\"anchors\":[{\"type\":\"file\",\"path\":\"src/multi.go\"}]}" | jq -r .entry_id)
+pairs=$(printf '%s\n' "$m1 (you touch multi one)" "$m2 (you touch multi two)" | LC_ALL=C sort | awk 'BEGIN { ORS = "" } NR > 1 { printf "; " } { printf "%s", $0 }')
+want=$(jq -cn --arg r "Trails has 2 entries for this file; read the one whose read_when matches your task, then open the file: $pairs" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}')
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/multi.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+[ "$out" = "$want" ] || fail "claude pre-read lists every entry: got '$out', want '$want'"
+tool read "{\"session_id\":\"$csid\",\"entry_id\":\"$m2\",\"depth\":\"summary\"}" >/dev/null
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/multi.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+expect_empty "claude pre-read after one of the entries is read" "$out"
+
 out=$(printf '{"session_id":"rt-claude","stop_hook_active":false}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
 expect "claude stop" '.decision == "block" and (.reason | startswith("Trails session still open with 0 gaps: call session_end"))' "$out"
 

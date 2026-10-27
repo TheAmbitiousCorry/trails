@@ -404,3 +404,72 @@ func TestPreReadWithoutSession(t *testing.T) {
 		t.Errorf("no-session reads recorded %d events", after-before)
 	}
 }
+
+func TestPreReadListsEveryEntry(t *testing.T) {
+	st, addr, repo := startRepoServer(t)
+	if err := os.MkdirAll(filepath.Join(repo, "src", "billing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "billing", "round.go"), []byte("package billing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := newAgent(t, addr, "rt-list")
+	for _, title := range []string{"Billing rounding", "Billing tax", "Billing audit"} {
+		res, err := a.raw("write", map[string]any{"parent_sign_id": "root", "kind": "decision", "decided_by": "ana", "decided_at": "2026-10-27", "title": title, "read_when": "you change " + title,
+			"body": "Billing is one file.", "anchors": []map[string]any{{"type": "file", "path": "src/billing/round.go"}}})
+		if err != nil || res.IsError {
+			t.Fatalf("write %s: %v %v", title, err, res.Content[0])
+		}
+	}
+	rows, err := st.DB.Query(`SELECT entry_id FROM anchors WHERE path_or_url = 'src/billing/round.go' ORDER BY entry_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, id)
+	}
+	rows.Close()
+	if len(want) != 3 {
+		t.Fatalf("anchored entries = %v, want 3", want)
+	}
+	pre := func() map[string]any {
+		return postAPI(t, addr, "/api/pre-read", map[string]any{"runtime_session_id": "rt-list", "path": "src/billing/round.go"})
+	}
+	// signpostIDs returns the entry ids a reply lists, in order.
+	signpostIDs := func(got map[string]any) []string {
+		var ids []string
+		list, _ := got["entries"].([]any)
+		for _, e := range list {
+			m, _ := e.(map[string]any)
+			id, _ := m["entry_id"].(string)
+			ids = append(ids, id)
+		}
+		return ids
+	}
+
+	// Unread: turned back, the reply lists all three by id, and entry_id and read_when repeat the first.
+	got := pre()
+	if got["decision"] != "turned_back" || got["total"] != float64(3) || got["entry_id"] != want[0] {
+		t.Fatalf("unread = %v", got)
+	}
+	if ids := signpostIDs(got); strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Errorf("listed %v, want %v", ids, want)
+	}
+	// Repeated attempts on the same path record one turned_back.
+	pre()
+	if n := offTrailRows(t, st, a.sid, "turned_back"); n != 1 {
+		t.Errorf("repeated turned_back recorded %d times, want 1", n)
+	}
+
+	// A read of any one of them checks the path; the reply still lists all three.
+	a.ok("read", map[string]any{"entry_id": want[2], "depth": "summary"})
+	got = pre()
+	if got["decision"] != "checked" || got["total"] != float64(3) || len(signpostIDs(got)) != 3 || got["entry_id"] != want[0] {
+		t.Errorf("after reading one = %v", got)
+	}
+}

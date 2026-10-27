@@ -173,15 +173,30 @@ const (
 	decisionUnmapped   = "unmapped"
 )
 
-// preReadReply is the answer to a hook that asks before a native read. The entry fields are set for checked, turned_back and unstarted.
+// maxSignposts caps the entries a pre-read reply lists; total still counts them all.
+const maxSignposts = 8
+
+// preReadReply is the answer to a hook that asks before a native read. The entry fields are set for checked, turned_back and unstarted;
+// entries lists the anchoring entries by id (at most maxSignposts), and entry_id and read_when repeat the first of them.
 type preReadReply struct {
-	Decision string `json:"decision"`
-	EntryID  string `json:"entry_id,omitempty"`
-	ReadWhen string `json:"read_when,omitempty"`
+	Decision string     `json:"decision"`
+	EntryID  string     `json:"entry_id,omitempty"`
+	ReadWhen string     `json:"read_when,omitempty"`
+	Entries  []signpost `json:"entries,omitempty"`
+	Total    int        `json:"total,omitempty"`
 }
 
-// preRead decides whether a native read may go through. A read of a path an entry anchors is turned back to the first such entry the session has not read; once the session has read them all it is checked.
-// Every call records an off_trail event with the decision as its result, except a turned_back on a path and entry the session was already turned back from.
+// signpostReply fills the entry fields of a pre-read reply from anchors, which must be sorted by id and non-empty.
+func signpostReply(decision string, anchors []signpost) preReadReply {
+	entries := anchors
+	if len(entries) > maxSignposts {
+		entries = entries[:maxSignposts]
+	}
+	return preReadReply{Decision: decision, EntryID: anchors[0].EntryID, ReadWhen: anchors[0].ReadWhen, Entries: entries, Total: len(anchors)}
+}
+
+// preRead decides whether a native read may go through. A read of a path an entry anchors is checked once the session has read at least one of the entries anchoring it, and turned back otherwise.
+// Every call records an off_trail event with the decision as its result, except a turned_back on a path the session was already turned back from.
 func preRead(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
 	p := str(in, "path")
 	if p == "" {
@@ -194,27 +209,30 @@ func preRead(ctx context.Context, st *project.Project, sid string, in map[string
 	}
 	sort.SliceStable(anchors, func(i, j int) bool { return anchors[i].EntryID < anchors[j].EntryID })
 	reply := preReadReply{Decision: decisionUnmapped}
-	if len(anchors) > 0 {
-		reply = preReadReply{Decision: decisionChecked, EntryID: anchors[0].EntryID, ReadWhen: anchors[0].ReadWhen}
-	}
-	for _, a := range anchors {
-		var n int
-		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'read' AND result = 'ok' AND target = ?`, sid, a.EntryID).Scan(&n); err != nil {
-			return nil, err
-		}
-		if n == 0 {
-			reply = preReadReply{Decision: decisionTurnedBack, EntryID: a.EntryID, ReadWhen: a.ReadWhen}
-			break
-		}
-	}
 	shown := "[]"
-	if reply.EntryID != "" {
-		b, _ := json.Marshal([]string{reply.EntryID})
+	if len(anchors) > 0 {
+		reply.Decision = decisionTurnedBack
+		for _, a := range anchors {
+			var n int
+			if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'read' AND result = 'ok' AND target = ?`, sid, a.EntryID).Scan(&n); err != nil {
+				return nil, err
+			}
+			if n > 0 {
+				reply.Decision = decisionChecked
+				break
+			}
+		}
+		reply = signpostReply(reply.Decision, anchors)
+		ids := make([]string, 0, len(reply.Entries))
+		for _, e := range reply.Entries {
+			ids = append(ids, e.EntryID)
+		}
+		b, _ := json.Marshal(ids)
 		shown = string(b)
 	}
 	if reply.Decision == decisionTurnedBack {
 		var n int
-		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'off_trail' AND result = 'turned_back' AND target = ? AND shown_json = ?`, sid, rel, shown).Scan(&n); err != nil {
+		if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id = ? AND tool = 'off_trail' AND result = 'turned_back' AND target = ?`, sid, rel).Scan(&n); err != nil {
 			return nil, err
 		}
 		if n > 0 {
@@ -242,7 +260,7 @@ func preReadMiss(ctx context.Context, p *project.Project, in map[string]any) (an
 		return preReadReply{Decision: decisionUnmapped}, nil
 	}
 	sort.SliceStable(anchors, func(i, j int) bool { return anchors[i].EntryID < anchors[j].EntryID })
-	return preReadReply{Decision: decisionUnstarted, EntryID: anchors[0].EntryID, ReadWhen: anchors[0].ReadWhen}, nil
+	return signpostReply(decisionUnstarted, anchors), nil
 }
 
 type signpost struct {
