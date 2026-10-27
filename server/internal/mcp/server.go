@@ -23,7 +23,7 @@ func Handler(reg *project.Registry, addr string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", guard(addr, mcpHandler))
 	registerAPI(mux, reg, addr)
-	web.Register(mux, reg.Sole, func(next http.Handler) http.Handler { return guard(addr, next) })
+	web.Register(mux, reg, func(next http.Handler) http.Handler { return guard(addr, next) })
 	// An unknown /api path is a 404, never the front end's index.
 	mux.Handle("/api/", guard(addr, http.NotFoundHandler()))
 	return mux

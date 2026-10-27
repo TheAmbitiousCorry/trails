@@ -118,13 +118,16 @@ func TestOneServerKeepsProjectsApart(t *testing.T) {
 	if got := postAPI(t, addr, "/api/stop-check", map[string]any{"runtime_session_id": "x"}); got["open"] != false {
 		t.Errorf("stop-check with two projects and no match = %v", got)
 	}
-	resp, err := http.Get("http://" + addr + "/api/map")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusConflict {
-		t.Errorf("map with two projects: status %d", resp.StatusCode)
+	// The data routes name their project, so two projects answer side by side.
+	for route, want := range map[string]int{"/api/p/" + idA + "/map": 200, "/api/p/" + idB + "/map": 200, "/api/map": 404} {
+		resp, err := http.Get("http://" + addr + route)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("%s with two projects: status %d, want %d", route, resp.StatusCode, want)
+		}
 	}
 
 	// A restart over the same home finds both projects and both open sessions.

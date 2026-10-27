@@ -52,42 +52,46 @@ func handle(fn func(*http.Request) (any, error)) http.Handler {
 }
 
 // Register mounts the API and the embedded front end on mux, each behind guard.
-// A route acts on the project sole returns; sole's error becomes a 409 for project_ambiguous and a 404 otherwise.
-func Register(mux *http.ServeMux, sole func() (*project.Project, error), guard func(http.Handler) http.Handler) {
+// Every data route lives under /api/p/{project}/ and acts on the project that id names in reg.
+func Register(mux *http.ServeMux, reg *project.Registry, guard func(http.Handler) http.Handler) {
 	routes := map[string]func(*api, *http.Request) (any, error){
-		"GET /api/map":                     (*api).siteMap,
-		"GET /api/search":                  (*api).search,
-		"GET /api/graph":                   (*api).graph,
-		"GET /api/signs/{id}":              (*api).sign,
-		"GET /api/entries/{id}":            (*api).entry,
-		"GET /api/entries/{id}/snippet":    (*api).snippet,
-		"GET /api/sessions":                (*api).sessions,
-		"GET /api/sessions/{id}":           (*api).session,
-		"GET /api/gaps":                    (*api).gaps,
-		"GET /api/provisional":             (*api).provisional,
-		"GET /api/tags":                    (*api).tags,
-		"GET /api/rejections":              (*api).rejections,
-		"GET /api/dismissals":              (*api).dismissals,
-		"POST /api/signs":                  (*api).createSign,
-		"POST /api/entries/{id}/supersede": (*api).supersede,
+		"GET /map":                     (*api).siteMap,
+		"GET /search":                  (*api).search,
+		"GET /graph":                   (*api).graph,
+		"GET /signs/{id}":              (*api).sign,
+		"GET /entries/{id}":            (*api).entry,
+		"GET /entries/{id}/snippet":    (*api).snippet,
+		"GET /sessions":                (*api).sessions,
+		"GET /sessions/{id}":           (*api).session,
+		"GET /gaps":                    (*api).gaps,
+		"GET /provisional":             (*api).provisional,
+		"GET /tags":                    (*api).tags,
+		"GET /rejections":              (*api).rejections,
+		"GET /dismissals":              (*api).dismissals,
+		"POST /signs":                  (*api).createSign,
+		"POST /entries/{id}/supersede": (*api).supersede,
 	}
 	for pattern, fn := range routes {
-		mux.Handle(pattern, guard(handle(func(r *http.Request) (any, error) {
-			p, err := sole()
-			switch {
-			case errors.Is(err, project.ErrAmbiguous):
-				return nil, &statusError{http.StatusConflict, err.Error()}
-			case err != nil:
-				return nil, notFound(err.Error())
-			}
-			return fn(&api{st: p.Store, repo: p.Repo()}, r)
-		})))
+		method, route, _ := strings.Cut(pattern, " ")
+		mux.Handle(method+" /api/p/{project}"+route, guard(withProject(reg, fn)))
 	}
-	mux.Handle("/", guard(spa()))
+	mux.Handle("/", guard(spa(reg)))
 }
 
-// spa serves the embedded build, and index.html for any path that is not a file so client-side routes survive a reload.
-func spa() http.Handler {
+// withProject resolves the {project} path value and builds the api for that project; an unknown id is a 404.
+func withProject(reg *project.Registry, fn func(*api, *http.Request) (any, error)) http.Handler {
+	return handle(func(r *http.Request) (any, error) {
+		p, ok := reg.ByID(r.PathValue("project"))
+		if !ok {
+			return nil, notFound("unknown project")
+		}
+		return fn(&api{st: p.Store, repo: p.Repo()}, r)
+	})
+}
+
+// spa serves the embedded build, and index.html for / and for any path under /p/ that is not a file so client-side routes survive a reload.
+// Any other page path is a link from before pages had a project prefix: it redirects to the same path under the only project, or to / when the server holds none or several.
+func spa(reg *project.Registry) http.Handler {
 	sub, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		panic(err)
@@ -106,8 +110,24 @@ func spa() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if !strings.HasPrefix(p, "p/") {
+			http.Redirect(w, r, unprefixed(reg, r), http.StatusFound)
+			return
+		}
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/"
 		files.ServeHTTP(w, r2)
 	})
+}
+
+func unprefixed(reg *project.Registry, r *http.Request) string {
+	p, err := reg.Sole()
+	if err != nil {
+		return "/"
+	}
+	u := "/p/" + p.ID + path.Clean(r.URL.Path)
+	if r.URL.RawQuery != "" {
+		u += "?" + r.URL.RawQuery
+	}
+	return u
 }

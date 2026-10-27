@@ -29,7 +29,10 @@ func defaultAddr() string {
 	return fallbackAddr
 }
 
-var errNoServer = errors.New("no server")
+var (
+	errNoServer = errors.New("no server")
+	errNotFound = errors.New("not found")
+)
 
 // openBrowser starts the platform opener; it is a variable so tests never launch one.
 var openBrowser = func(u string) error {
@@ -64,10 +67,49 @@ func getJSON(addr, path string, out any) error {
 		return errNoServer
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return errNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s: %s", path, resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// projectID reads the id from the nearest .trail/id at or above repo, or above the working directory when repo is empty, as the hook scripts do.
+func projectID(repo string) (string, error) {
+	if repo == "" {
+		repo, _ = os.Getwd()
+	}
+	dir, err := filepath.Abs(repo)
+	if err != nil {
+		return "", err
+	}
+	for d := dir; ; d = filepath.Dir(d) {
+		id, err := store.ReadID(d)
+		if !errors.Is(err, store.ErrNoID) {
+			return id, err
+		}
+		if filepath.Dir(d) == d {
+			return "", fmt.Errorf("no .trail/id at or above %s; run: trails register", dir)
+		}
+	}
+}
+
+// getProject is getJSON for a route under /api/p/<id>; a project the server does not hold gets the way to register it.
+func getProject(addr, id, route string, out any) error {
+	err := getJSON(addr, "/api/p/"+url.PathEscape(id)+route, out)
+	if errors.Is(err, errNotFound) {
+		return fmt.Errorf("the server at %s does not hold project %s; run: trails register", addr, id)
+	}
+	return err
+}
+
+func failServer(stderr io.Writer, addr string, err error) int {
+	if errors.Is(err, errNoServer) {
+		return noServer(stderr, addr)
+	}
+	return fail(stderr, err)
 }
 
 func noServer(stderr io.Writer, addr string) int {
@@ -85,19 +127,25 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	repo := fs.String("repo", "", "repository whose project to open (default the working directory)")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
 	if target == "" && fs.NArg() > 0 {
 		target = fs.Arg(0)
 	}
+	id, err := projectID(*repo)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	prefix := "/p/" + url.PathEscape(id)
 
 	var path string
 	switch target {
 	case "", "map":
-		path = "/"
+		path = prefix + "/"
 	case "graph":
-		path = "/graph"
+		path = prefix + "/graph"
 	case "trail":
 		var body struct {
 			Sessions []struct {
@@ -105,16 +153,13 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 				EndedAt string `json:"ended_at"`
 			} `json:"sessions"`
 		}
-		if err := getJSON(*addr, "/api/sessions", &body); err != nil {
-			if errors.Is(err, errNoServer) {
-				return noServer(stderr, *addr)
-			}
-			return fail(stderr, err)
+		if err := getProject(*addr, id, "/sessions", &body); err != nil {
+			return failServer(stderr, *addr, err)
 		}
-		path = "/sessions"
+		path = prefix + "/sessions"
 		for i, s := range body.Sessions {
 			if i == 0 || s.EndedAt == "" {
-				path = "/sessions/" + url.PathEscape(s.ID)
+				path = prefix + "/sessions/" + url.PathEscape(s.ID)
 			}
 			if s.EndedAt == "" {
 				break
@@ -127,11 +172,8 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 
 	if target != "trail" {
 		var probe json.RawMessage
-		if err := getJSON(*addr, "/api/map", &probe); err != nil {
-			if errors.Is(err, errNoServer) {
-				return noServer(stderr, *addr)
-			}
-			return fail(stderr, err)
+		if err := getProject(*addr, id, "/map", &probe); err != nil {
+			return failServer(stderr, *addr, err)
 		}
 	}
 
@@ -143,29 +185,54 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// runStatus prints one line per project the server holds, or the one --repo names.
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	repo := fs.String("repo", "", "show only the project of this repository")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	var m struct {
-		Project struct {
-			Title string `json:"title"`
-		} `json:"project"`
-		Root struct {
-			Entries  int `json:"entries"`
-			OpenGaps int `json:"open_gaps"`
-		} `json:"root"`
-	}
-	if err := getJSON(*addr, "/api/map", &m); err != nil {
-		if errors.Is(err, errNoServer) {
-			return noServer(stderr, *addr)
+	var ids []string
+	if *repo != "" {
+		id, err := projectID(*repo)
+		if err != nil {
+			return fail(stderr, err)
 		}
-		return fail(stderr, err)
+		ids = []string{id}
+	} else {
+		var list struct {
+			Projects []struct {
+				ID string `json:"id"`
+			} `json:"projects"`
+		}
+		if err := getJSON(*addr, "/api/projects", &list); err != nil {
+			return failServer(stderr, *addr, err)
+		}
+		for _, p := range list.Projects {
+			ids = append(ids, p.ID)
+		}
+		if len(ids) == 0 {
+			fmt.Fprintf(stdout, "no projects at %s; register one with: trails register\n", *addr)
+			return 0
+		}
 	}
-	fmt.Fprintf(stdout, "%s: %d entries, %d open gaps\n", m.Project.Title, m.Root.Entries, m.Root.OpenGaps)
+	for _, id := range ids {
+		var m struct {
+			Project struct {
+				Title string `json:"title"`
+			} `json:"project"`
+			Root struct {
+				Entries  int `json:"entries"`
+				OpenGaps int `json:"open_gaps"`
+			} `json:"root"`
+		}
+		if err := getProject(*addr, id, "/map", &m); err != nil {
+			return failServer(stderr, *addr, err)
+		}
+		fmt.Fprintf(stdout, "%s (%s): %d entries, %d open gaps\n", m.Project.Title, id, m.Root.Entries, m.Root.OpenGaps)
+	}
 	return 0
 }
 

@@ -147,9 +147,14 @@ func seed(t *testing.T) *fixture {
 	return f
 }
 
+// url puts a data route (/api/map) under the fixture's project (/api/p/<id>/map).
+func (f *fixture) url(route string) string {
+	return "http://" + f.addr + "/api/p/" + f.st.ProjectID + strings.TrimPrefix(route, "/api")
+}
+
 func (f *fixture) get(route string) (int, map[string]any) {
 	f.t.Helper()
-	resp, err := http.Get("http://" + f.addr + route)
+	resp, err := http.Get(f.url(route))
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -330,7 +335,7 @@ func TestQueuesAndLogs(t *testing.T) {
 
 func TestFrontEndServedWithFallbackAndGuard(t *testing.T) {
 	f := seed(t)
-	for _, route := range []string{"/", "/sessions/abc", "/signs/billing"} {
+	for _, route := range []string{"/", "/p/" + f.st.ProjectID + "/", "/p/" + f.st.ProjectID + "/sessions/abc", "/p/nope/signs/billing"} {
 		resp, err := http.Get("http://" + f.addr + route)
 		if err != nil {
 			t.Fatal(err)
@@ -342,10 +347,17 @@ func TestFrontEndServedWithFallbackAndGuard(t *testing.T) {
 			t.Errorf("%s: %d %q", route, resp.StatusCode, buf[:n])
 		}
 	}
-	if code, _ := f.get("/api/nope"); code != 404 {
-		t.Errorf("unknown api path: %d", code)
+	for _, route := range []string{"/api/nope", "/api/map", "/api/p/nope/map"} {
+		resp, err := http.Get("http://" + f.addr + route)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 {
+			t.Errorf("%s: %d", route, resp.StatusCode)
+		}
 	}
-	req, _ := http.NewRequest("GET", "http://"+f.addr+"/api/map", nil)
+	req, _ := http.NewRequest("GET", f.url("/api/map"), nil)
 	req.Header.Set("Origin", "http://evil.example")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -457,7 +469,7 @@ func TestGraphSessionRoute(t *testing.T) {
 func (f *fixture) post(route string, body any) (int, string) {
 	f.t.Helper()
 	b, _ := json.Marshal(body)
-	resp, err := http.Post("http://"+f.addr+route, "application/json", strings.NewReader(string(b)))
+	resp, err := http.Post(f.url(route), "application/json", strings.NewReader(string(b)))
 	if err != nil {
 		f.t.Fatal(err)
 	}

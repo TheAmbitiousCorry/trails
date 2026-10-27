@@ -26,7 +26,7 @@ With the server running, open its pages from a terminal:
 
 ```bash
 trails open trail    # the latest session; also: map (default), graph
-trails status        # project, entry count, open gaps
+trails status        # every project: entry count, open gaps
 ```
 
 `serve` is the default subcommand, so the command above is the same as `trails serve --repo /path/to/your/project`.
