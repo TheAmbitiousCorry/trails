@@ -5,7 +5,7 @@ last-verified: 2026-10-27
 
 # Trail
 
-The trail is the record of what every reader did. The MCP, the two hook endpoints and the sweep write it; nothing else does. Humans read it in the browser.
+The trail is the record of what every reader did. The MCP, the two hook endpoints, the sweep and the browser's sign creation write it; nothing else does. Humans read it in the browser.
 
 ## Sessions
 
@@ -17,9 +17,9 @@ One row per call, append-only:
 
 | Field | |
 |---|---|
-| `session_id` | Minted by the recorder before the handler runs, so the `session_start` event carries the id its session row is created with. |
+| `session_id` | Minted by the recorder before the handler runs, so the `session_start` event carries the id its session row is created with. The browser logs its writes under the session id `user`, which has no session row; the rejection log reads it as actor kind `user`. |
 | `at` | timestamp |
-| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`, and `sweep` for the expiry pass, whose rows carry result `dormant` or `deleted` and whose dormancy time dates the further 30 days before deletion. The orient view is the response to `session_start`, not a tool of its own. |
+| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_sign` (target: the new sign id), `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`, and `sweep` for the expiry pass, whose rows carry result `dormant` or `deleted` and whose dormancy time dates the further 30 days before deletion. The orient view is the response to `session_start`, not a tool of its own. |
 | `target` | sign or entry id, or query text for search |
 | `depth` | `summary` or `full` for reads |
 | `result` | `ok`, `refused:<rule>`, `miss`, `error` |

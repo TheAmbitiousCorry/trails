@@ -238,6 +238,12 @@ export async function getJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export async function postJSON<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw new ApiError(res.status, (await res.text()).trim() || res.statusText)
+  return res.json() as Promise<T>
+}
+
 export interface Loaded<T> { data: Ref<T | null>; error: Ref<string>; loading: Ref<boolean> }
 
 /** Fetches whenever the url changes; a null url means wait. A late reply for a stale url is dropped. */

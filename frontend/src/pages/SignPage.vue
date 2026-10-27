@@ -1,13 +1,36 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
-import { useApi, type Edge, type SignResponse } from '../api'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ApiError, postJSON, useApi, type Edge, type SignResponse } from '../api'
+import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
 import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
 
 const route = useRoute()
+const router = useRouter()
 const { data, error, loading } = useApi<SignResponse>(() => `/api/signs/${encodeURIComponent(String(route.params.id))}`)
+
+const newTitle = ref('')
+const createError = ref('')
+const creating = ref(false)
+watch(() => route.params.id, () => { newTitle.value = ''; createError.value = '' })
+
+async function createSign() {
+  if (creating.value) return
+  creating.value = true
+  createError.value = ''
+  try {
+    const out = await postJSON<{ sign_id: string }>('/api/signs', { parent_id: String(route.params.id), title: newTitle.value, move: [] })
+    await invalidate()
+    await router.push({ name: 'sign', params: { id: out.sign_id } })
+  } catch (e) {
+    createError.value = e instanceof ApiError || e instanceof Error ? e.message : String(e)
+  } finally {
+    creating.value = false
+  }
+}
 
 function edgeCounts(e: Edge): string {
   if (e.type === 'sign') return `${e.child_count ?? 0} below${e.stale_count ? `, ${e.stale_count} stale` : ''}`
@@ -79,6 +102,16 @@ function edgeCounts(e: Edge): string {
             </li>
           </ul>
         </article>
+      </section>
+
+      <section aria-labelledby="add-sign">
+        <h2 id="add-sign">Add a sign under this one</h2>
+        <form class="add-sign" @submit.prevent="createSign">
+          <label for="new-sign-title" class="muted small">Title</label>
+          <input id="new-sign-title" v-model="newTitle" type="text" maxlength="80" required autocomplete="off" :aria-describedby="createError ? 'new-sign-error' : undefined" :aria-invalid="!!createError" />
+          <button type="submit" :disabled="creating">Add sign</button>
+        </form>
+        <p v-if="createError" id="new-sign-error" class="notice error" role="alert">{{ createError }}</p>
       </section>
     </template>
   </Load>

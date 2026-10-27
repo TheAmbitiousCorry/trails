@@ -238,3 +238,9 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
   .graph-layout { flex-direction: column; }
   .hop-list { flex: none; max-height: none; }
 }
+
+.add-sign { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.5rem 0; }
+.add-sign input { flex: 1 1 14rem; min-width: 0; font: inherit; padding: 0.4rem 0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+.add-sign input[aria-invalid="true"] { border-color: var(--stale); }
+.add-sign button { font: inherit; color: var(--bg); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; }
+.add-sign button:disabled { opacity: 0.6; cursor: default; }

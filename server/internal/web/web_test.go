@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -444,5 +445,60 @@ func TestGraphSessionRoute(t *testing.T) {
 	}
 	if !read || !query {
 		t.Errorf("chained read %v, query marker %v in %v", read, query, m["route"])
+	}
+}
+
+func (f *fixture) post(route string, body any) (int, string) {
+	f.t.Helper()
+	b, _ := json.Marshal(body)
+	resp, err := http.Post("http://"+f.addr+route, "application/json", strings.NewReader(string(b)))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(strings.Builder)
+	io.Copy(buf, resp.Body)
+	return resp.StatusCode, buf.String()
+}
+
+func TestCreateSignFromTheBrowser(t *testing.T) {
+	f := seed(t)
+	code, body := f.post("/api/signs", map[string]any{"parent_id": "root", "title": "Deploys", "move": []string{}})
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	var out struct {
+		SignID string `json:"sign_id"`
+		Title  string `json:"title"`
+		Moved  int    `json:"moved"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil || out.SignID != "deploys" || out.Title != "Deploys" || out.Moved != 0 {
+		t.Fatalf("response %q: %v", body, err)
+	}
+	_, g := f.get("/api/graph")
+	if !slices.Contains(graphIDs(g), "deploys") {
+		t.Errorf("graph lacks the new sign: %v", graphIDs(g))
+	}
+	var ev int
+	f.st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'user' AND tool = 'write_sign' AND target = 'deploys' AND result = 'ok'`).Scan(&ev)
+	if ev != 1 {
+		t.Errorf("human write_sign events: %d", ev)
+	}
+
+	code, body = f.post("/api/signs", map[string]any{"parent_id": "root", "title": "Moved", "move": []string{"round-helper"}})
+	if code != 400 || !strings.HasPrefix(body, "move_scope: ") {
+		t.Errorf("move outside the parent: %d %q", code, body)
+	}
+	code, body = f.post("/api/signs", map[string]any{"parent_id": "root", "title": "  "})
+	if code != 400 || !strings.HasPrefix(body, "schema:title: ") {
+		t.Errorf("blank title: %d %q", code, body)
+	}
+	if code, _ = f.post("/api/signs", map[string]any{"parent_id": "nope", "title": "X"}); code != 404 {
+		t.Errorf("unknown parent: %d", code)
+	}
+	var refused int
+	f.st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'user' AND tool = 'write_sign' AND result = 'refused:move_scope'`).Scan(&refused)
+	if refused != 1 {
+		t.Errorf("refused events: %d", refused)
 	}
 }

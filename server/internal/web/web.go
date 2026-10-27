@@ -1,4 +1,4 @@
-// Package web serves the read-only JSON API and the embedded Vue build.
+// Package web serves the JSON API, with one write route, and the embedded Vue build.
 package web
 
 import (
@@ -46,7 +46,7 @@ func handle(fn func(*http.Request) (any, error)) http.Handler {
 	})
 }
 
-// Register mounts the read-only API and the embedded front end on mux, each behind guard.
+// Register mounts the API and the embedded front end on mux, each behind guard.
 func Register(mux *http.ServeMux, st *store.Store, guard func(http.Handler) http.Handler) {
 	a := &api{st: st}
 	routes := map[string]func(*http.Request) (any, error){
@@ -63,6 +63,7 @@ func Register(mux *http.ServeMux, st *store.Store, guard func(http.Handler) http
 		"GET /api/tags":                 a.tags,
 		"GET /api/rejections":           a.rejections,
 		"GET /api/dismissals":           a.dismissals,
+		"POST /api/signs":               a.createSign,
 	}
 	for pattern, fn := range routes {
 		mux.Handle(pattern, guard(handle(fn)))

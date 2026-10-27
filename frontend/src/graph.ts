@@ -44,6 +44,11 @@ const tree = computed<TreeSign[]>(() => {
   return roots.length === 1 ? roots[0].signs : roots
 })
 
+/** Refetches the graph so the sidebar tree shows signs created since it loaded. */
+export function invalidate(): Promise<void> {
+  return load()
+}
+
 export function useGraph() {
   if (!loaded) void load()
   return { nodes, edges, loading, error, tree }

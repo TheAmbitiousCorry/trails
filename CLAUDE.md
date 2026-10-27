@@ -11,7 +11,7 @@ Trails is a project wiki that AI agents navigate one sign at a time and humans r
 | The tree, signs, edges, fan-out, prerequisites | [signs](docs/context/core/signs.md) |
 | Sessions, events, gaps, heat | [trail](docs/context/core/trail.md) |
 | Agent-facing tools and their responses | [mcp](docs/context/core/mcp.md) |
-| Browser pages (read-only) | [web_ui](docs/context/core/web_ui.md) |
+| Browser pages | [web_ui](docs/context/core/web_ui.md) |
 | Storage, search, process layout | [storage](docs/context/core/storage.md) |
 | Agent runtimes, hook endpoints, adapters | [adapters](docs/context/core/adapters.md) |
 

@@ -52,7 +52,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 ## Status
 
-The walking skeleton is complete: the server with eight MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and read-only browser pages for the map, signs, session routes and queues. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
+The walking skeleton is complete: the server with nine MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and browser pages for the map, graph, signs, session routes and queues, with sign creation as the one browser write. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
 
 ## License
 
