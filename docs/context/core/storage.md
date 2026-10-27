@@ -5,7 +5,7 @@ last-verified: 2026-10-27
 
 # Storage
 
-One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with WAL mode, by a pure-Go driver (no C toolchain). The project id is a random slug stored in the repo at `.trail/id`, which is committed; the repo is the `--repo` flag, defaulting to the working directory, and anchors resolve against it. One server process serves one repo and one database.
+One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with WAL mode, a 5-second busy timeout and immediate write transactions, by a pure-Go driver (no C toolchain). Concurrent writers queue on the database lock instead of failing with `SQLITE_BUSY`. The project id is a random slug stored in the repo at `.trail/id`, which is committed; the repo is the `--repo` flag, defaulting to the working directory, and anchors resolve against it. One server process serves one repo and one database.
 
 ## Tables
 
