@@ -349,3 +349,100 @@ func TestFrontEndServedWithFallbackAndGuard(t *testing.T) {
 		t.Errorf("foreign origin: %d", resp.StatusCode)
 	}
 }
+
+func TestSearchFindsFixtureTitleAndRejectsEmpty(t *testing.T) {
+	f := seed(t)
+	_, m := f.get("/api/search?q=" + "invoices+round+cents")
+	hits := m["hits"].([]any)
+	if m["q"] != "invoices round cents" || m["miss"] != false || len(hits) == 0 || hits[0].(map[string]any)["id"] != "invoices-round-to-cents" {
+		t.Errorf("search = %v", m)
+	}
+	_, miss := f.get("/api/search?q=xyzzyplugh")
+	if miss["miss"] != true || len(miss["hits"].([]any)) != 0 {
+		t.Errorf("miss = %v", miss)
+	}
+	if code, _ := f.get("/api/search?q="); code != 400 {
+		t.Errorf("empty q: %d", code)
+	}
+	if code, _ := f.get("/api/search"); code != 400 {
+		t.Errorf("missing q: %d", code)
+	}
+}
+
+func graphIDs(m map[string]any) []string {
+	var ids []string
+	for _, n := range m["nodes"].([]any) {
+		ids = append(ids, n.(map[string]any)["id"].(string))
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+func TestGraphCountsAndFilters(t *testing.T) {
+	f := seed(t)
+	code, m := f.get("/api/graph")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	// 3 signs + 3 entries; edges: 2 sign->sign, 3 sign->entry, 1 requires.
+	if len(m["nodes"].([]any)) != 6 || len(m["edges"].([]any)) != 6 || m["route"] != nil {
+		t.Errorf("nodes %d, edges %d, route %v", len(m["nodes"].([]any)), len(m["edges"].([]any)), m["route"])
+	}
+	var requires int
+	for _, e := range m["edges"].([]any) {
+		if e.(map[string]any)["relation"] == "requires" {
+			requires++
+		}
+	}
+	if requires != 1 {
+		t.Errorf("requires edges = %d", requires)
+	}
+
+	_, local := f.get("/api/graph?focus=round-helper")
+	if got, want := graphIDs(local), []string{"invoices", "invoices-round-to-cents", "round-helper"}; !slices.Equal(got, want) {
+		t.Errorf("depth 1 = %v, want %v", got, want)
+	}
+	_, wide := f.get("/api/graph?focus=round-helper&depth=2")
+	if len(wide["nodes"].([]any)) <= len(local["nodes"].([]any)) {
+		t.Errorf("depth 2 did not widen: %v", graphIDs(wide))
+	}
+
+	_, tagged := f.get("/api/graph?tag=undefined-tag")
+	if got, want := graphIDs(tagged), []string{"billing", "invoices", "invoices-round-to-cents", "root"}; !slices.Equal(got, want) {
+		t.Errorf("tag = %v, want %v", got, want)
+	}
+
+	for route, want := range map[string]int{
+		"/api/graph?focus=nope":            404,
+		"/api/graph?session=nope":          404,
+		"/api/graph?focus=billing&depth=3": 400,
+		"/api/graph?focus=billing&depth=0": 400,
+		"/api/graph?focus=billing&depth=x": 400,
+	} {
+		if code, _ := f.get(route); code != want {
+			t.Errorf("%s: %d, want %d", route, code, want)
+		}
+	}
+}
+
+func TestGraphSessionRoute(t *testing.T) {
+	f := seed(t)
+	_, m := f.get("/api/graph?session=" + f.session)
+	sess := m["session"].(map[string]any)
+	if sess["id"] != f.session || sess["task"] != "write the invoice report" || sess["ended_by"] == "" {
+		t.Errorf("session = %v", sess)
+	}
+	var read, query bool
+	for _, s := range m["route"].([]any) {
+		h := s.(map[string]any)
+		if h["tool"] == "read" && h["kind"] == "entry" && len(h["prerequisites"].([]any)) == 1 {
+			read = true
+		}
+		if h["tool"] == "search" && h["kind"] == "query" && h["miss"] == true {
+			query = true
+		}
+	}
+	if !read || !query {
+		t.Errorf("chained read %v, query marker %v in %v", read, query, m["route"])
+	}
+}

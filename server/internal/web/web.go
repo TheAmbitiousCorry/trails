@@ -51,6 +51,8 @@ func Register(mux *http.ServeMux, st *store.Store, guard func(http.Handler) http
 	a := &api{st: st}
 	routes := map[string]func(*http.Request) (any, error){
 		"GET /api/map":                  a.siteMap,
+		"GET /api/search":               a.search,
+		"GET /api/graph":                a.graph,
 		"GET /api/signs/{id}":           a.sign,
 		"GET /api/entries/{id}":         a.entry,
 		"GET /api/entries/{id}/snippet": a.snippet,
