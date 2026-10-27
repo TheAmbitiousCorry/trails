@@ -72,7 +72,8 @@ AGPL 3.0. See `LICENSE`.
 The repo is a Claude Code plugin. Add it through a marketplace that lists it, or straight from GitHub:
 
 ```bash
-claude plugin install trails@nibble-skills
+claude plugin marketplace add TheAmbitiousCorry/trails
+claude plugin install trails@trails
 ```
 
 The plugin carries the walking protocol skill, the `/trail` command, the three hooks and the MCP server entry on 127.0.0.1:7777. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the server for any repo with a committed `.trail/id`.

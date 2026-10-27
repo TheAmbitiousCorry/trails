@@ -1,0 +1,14 @@
+{
+  "name": "trails",
+  "owner": { "name": "Nibble-A-Bit", "email": "corry@nibbleabit.com" },
+  "description": "Trails: a project wiki agents walk one sign at a time. This repo is both the plugin and its marketplace.",
+  "plugins": [
+    {
+      "name": "trails",
+      "source": "./",
+      "description": "The walking protocol skill, the /trail command, the session-start, off-trail and stop hooks, and the MCP server entry. Needs the trails binary on PATH.",
+      "category": "workflow",
+      "keywords": ["wiki", "knowledge", "mcp", "trails", "context", "hooks"]
+    }
+  ]
+}
