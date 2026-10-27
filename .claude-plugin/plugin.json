@@ -1,6 +1,6 @@
 {
   "name": "trails",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "displayName": "Trails",
   "description": "A project wiki agents walk one sign at a time: the walking protocol skill, the /trail command, the session-start, pre-read, edited and stop hooks, and the MCP server entry. Needs the trails binary on PATH; the hook starts it for repos with a committed .trail/id.",
   "author": { "name": "Nibble-A-Bit", "email": "corry@nibbleabit.com" },

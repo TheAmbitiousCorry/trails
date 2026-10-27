@@ -67,8 +67,12 @@ out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/other.txt"
 expect_empty "claude pre-read unanchored" "$out"
 out=$(printf '{"session_id":"rt-claude","tool_name":"Grep","tool_input":{"pattern":"x"}}' | "$hooks/trails-pre-read.sh")
 expect_empty "claude pre-read without a path" "$out"
+# No session has this runtime id yet: an anchored path is unstarted and denied with the session_start pointer; an unanchored path passes.
+want=$(jq -cn --arg r "Trails: this repo has a map and an entry for this file ($entry, you touch package a). Start with session_start(task, project: $rid) and read($entry) before opening it." '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}')
 out=$(printf '{"session_id":"nobody","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
-expect_empty "pre-read unknown session" "$out"
+[ "$out" = "$want" ] || fail "pre-read unstarted before any session: got '$out', want '$want'"
+out=$(printf '{"session_id":"nobody","tool_input":{"file_path":"%s/other.txt"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
+expect_empty "pre-read unknown session, unanchored path" "$out"
 tool read "{\"session_id\":\"$csid\",\"entry_id\":\"$entry\",\"depth\":\"summary\"}" >/dev/null
 out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | "$hooks/trails-pre-read.sh")
 expect_empty "claude pre-read after the entry is read" "$out"

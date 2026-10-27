@@ -353,3 +353,54 @@ func TestPreReadEndpoint(t *testing.T) {
 		t.Errorf("no session recorded %d rows", after-before)
 	}
 }
+
+func TestPreReadWithoutSession(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "billing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "billing", "round.go"), []byte("package billing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, addr := serveRepos(t, repo)
+	pid := reg.List()[0].ID
+	st := reg.List()[0].Store
+	a := newAgent(t, addr, "rt-walk")
+	res, err := a.raw("write", map[string]any{"parent_sign_id": "root", "kind": "decision", "decided_by": "ana", "decided_at": "2026-10-27", "title": "Billing rounding", "read_when": "you change invoice rounding",
+		"body": "Rounding lives in one file.", "anchors": []map[string]any{{"type": "file", "path": "src/billing/round.go"}}})
+	if err != nil || res.IsError {
+		t.Fatalf("write: %v %v", err, res.Content[0])
+	}
+	var id string
+	if err := st.DB.QueryRow(`SELECT entry_id FROM anchors WHERE path_or_url = 'src/billing/round.go'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	pre := func(runtime, project, p string) map[string]any {
+		body := map[string]any{"runtime_session_id": runtime, "path": p}
+		if project != "" {
+			body["project"] = project
+		}
+		return postAPI(t, addr, "/api/pre-read", body)
+	}
+	var before int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&before)
+
+	// No session matches the runtime id, but the project's entry anchors the path: unstarted, with the entry, and nothing recorded.
+	got := pre("rt-fresh", pid, "src/billing/round.go")
+	if got["decision"] != "unstarted" || got["entry_id"] != id || got["read_when"] != "you change invoice rounding" {
+		t.Errorf("unstarted = %v", got)
+	}
+	// A plain path in the same project is unmapped.
+	if got := pre("rt-fresh", pid, "docs/plain.md"); got["decision"] != "unmapped" || got["entry_id"] != nil {
+		t.Errorf("plain path with no session = %v", got)
+	}
+	// Without a project in the body the registry cannot tell which repo the path belongs to: unmapped.
+	if got := pre("rt-fresh", "", "src/billing/round.go"); got["decision"] != "unmapped" || got["entry_id"] != nil {
+		t.Errorf("no project = %v", got)
+	}
+	var after int
+	st.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&after)
+	if before != after {
+		t.Errorf("no-session reads recorded %d events", after-before)
+	}
+}

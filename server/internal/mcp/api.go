@@ -35,7 +35,7 @@ func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
 		writeJSON(w, http.StatusOK, map[string]any{"projects": out})
 	})))
 	mux.Handle("POST /api/projects", guard(addr, registerProject(reg)))
-	mux.Handle("/api/pre-read", guard(addr, hookJSON(reg, preReadReply{Decision: decisionUnmapped}, preRead)))
+	mux.Handle("/api/pre-read", guard(addr, hookJSONMiss(reg, preReadReply{Decision: decisionUnmapped}, preRead, preReadMiss)))
 	mux.Handle("/api/off-trail", guard(addr, hookJSON(reg, struct{}{}, offTrail)))
 	mux.Handle("/api/edited", guard(addr, hookJSON(reg, editedReply{Entries: []signpost{}}, edited)))
 	mux.Handle("/api/stop-check", guard(addr, hookJSON(reg, map[string]bool{"open": false}, stopCheck)))
@@ -116,6 +116,11 @@ func registerProject(reg *project.Registry) http.Handler {
 // hookJSON serves a hook endpoint. The body's project names the project and its runtime_session_id is looked up there; without project the registry looks across all projects.
 // An unmatched session gets the empty reply, which is what a hook that never fails a turn expects; an unknown project is a 404.
 func hookJSON(reg *project.Registry, empty any, h func(context.Context, *project.Project, string, map[string]any) (any, error)) http.Handler {
+	return hookJSONMiss(reg, empty, h, nil)
+}
+
+// hookJSONMiss is hookJSON for an endpoint that still answers when no session matches: miss gets the project the body named, nil when it named none.
+func hookJSONMiss(reg *project.Registry, empty any, h func(context.Context, *project.Project, string, map[string]any) (any, error), miss func(context.Context, *project.Project, map[string]any) (any, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -141,8 +146,12 @@ func hookJSON(reg *project.Registry, empty any, h func(context.Context, *project
 			p, sid, found, err = reg.ByRuntime(r.Context(), str(in, "runtime_session_id"))
 		}
 		var out any = empty
-		if err == nil && found {
+		switch {
+		case err != nil:
+		case found:
 			out, err = h(r.Context(), p, sid, in)
+		case miss != nil:
+			out, err = miss(r.Context(), p, in)
 		}
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -160,10 +169,11 @@ func str(in map[string]any, key string) string {
 const (
 	decisionChecked    = "checked"
 	decisionTurnedBack = "turned_back"
+	decisionUnstarted  = "unstarted"
 	decisionUnmapped   = "unmapped"
 )
 
-// preReadReply is the answer to a hook that asks before a native read. The entry fields are set for checked and turned_back.
+// preReadReply is the answer to a hook that asks before a native read. The entry fields are set for checked, turned_back and unstarted.
 type preReadReply struct {
 	Decision string `json:"decision"`
 	EntryID  string `json:"entry_id,omitempty"`
@@ -215,6 +225,24 @@ func preRead(ctx context.Context, st *project.Project, sid string, in map[string
 		return nil, err
 	}
 	return reply, nil
+}
+
+// preReadMiss answers a read whose runtime id matches no open session. When the body's project holds a live entry anchoring the path the reply is unstarted, so the hook can send the agent to session_start;
+// nothing is recorded, as there is no session to record on.
+func preReadMiss(ctx context.Context, p *project.Project, in map[string]any) (any, error) {
+	path := str(in, "path")
+	if p == nil || path == "" {
+		return preReadReply{Decision: decisionUnmapped}, nil
+	}
+	anchors, err := anchoringEntries(ctx, p.DB(), repoRelative(p.Repo(), path))
+	if err != nil {
+		return nil, err
+	}
+	if len(anchors) == 0 {
+		return preReadReply{Decision: decisionUnmapped}, nil
+	}
+	sort.SliceStable(anchors, func(i, j int) bool { return anchors[i].EntryID < anchors[j].EntryID })
+	return preReadReply{Decision: decisionUnstarted, EntryID: anchors[0].EntryID, ReadWhen: anchors[0].ReadWhen}, nil
 }
 
 type signpost struct {
