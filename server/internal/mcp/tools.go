@@ -131,21 +131,22 @@ const prerequisiteNote = "These prerequisites still apply to this entry. They we
 
 // readOut is the requested entry; Prerequisites, served in full, come before it in reading order.
 type readOut struct {
-	Prerequisites    []entryOut     `json:"prerequisites,omitempty"`
-	AlreadyRead      []entryRef     `json:"already_read,omitempty"`
-	PrerequisiteNote string         `json:"prerequisite_note,omitempty"`
-	Related          []entries.Edge `json:"related,omitempty"`
-	Backlinks        []entries.Edge `json:"backlinks,omitempty"`
-	ID               string         `json:"id"`
-	Title            string         `json:"title"`
-	Kind             string         `json:"kind"`
-	Tier             string         `json:"tier"`
-	Tags             []string       `json:"tags"`
-	Anchors          []anchorOut    `json:"anchors"`
-	ReadWhen         string         `json:"read_when"`
-	Untrusted        untrusted      `json:"untrusted"`
-	Notice           string         `json:"notice,omitempty"`
-	Lines            int            `json:"lines"`
+	Prerequisites    []entryOut       `json:"prerequisites,omitempty"`
+	AlreadyRead      []entryRef       `json:"already_read,omitempty"`
+	PrerequisiteNote string           `json:"prerequisite_note,omitempty"`
+	Path             []signs.PathSign `json:"path"`
+	Related          []entries.Edge   `json:"related,omitempty"`
+	Backlinks        []entries.Edge   `json:"backlinks,omitempty"`
+	ID               string           `json:"id"`
+	Title            string           `json:"title"`
+	Kind             string           `json:"kind"`
+	Tier             string           `json:"tier"`
+	Tags             []string         `json:"tags"`
+	Anchors          []anchorOut      `json:"anchors"`
+	ReadWhen         string           `json:"read_when"`
+	Untrusted        untrusted        `json:"untrusted"`
+	Notice           string           `json:"notice,omitempty"`
+	Lines            int              `json:"lines"`
 }
 
 type lookIn struct {
@@ -345,7 +346,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "read",
 		Description: "Read one entry by id. Returns its title, kind, tier, tags, anchors, read_when and body as Markdown inside `untrusted`, " +
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
-			"depth summary returns the first paragraph, full returns the whole body. " +
+			"depth summary returns the first paragraph, full returns the whole body. `path` lists the signs from the root to the entry's home. " +
 			"At depth full, prerequisites already served in this session are listed under `already_read`, not repeated; if one is no longer in your context, read it directly.",
 	}, trail.Record(rec, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn) (*sdk.CallToolResult, readOut, error) {
 		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
@@ -629,6 +630,9 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 	}
 	out.Related, out.Backlinks, err = entries.Edges(ctx, db, in.EntryID)
 	if err != nil {
+		return nil, out, err
+	}
+	if out.Path, err = signs.PathTo(ctx, db, in.EntryID); err != nil {
 		return nil, out, err
 	}
 	out.ID, out.Title, out.Kind, out.Tier, out.ReadWhen = main.ID, main.Title, main.Kind, main.Tier, main.ReadWhen

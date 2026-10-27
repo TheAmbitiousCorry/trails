@@ -218,3 +218,21 @@ func TestLoneSummaryIsNoEdge(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestPathToRunsFromRootToHomeSign(t *testing.T) {
+	db := open(t)
+	addSign(t, db, "billing", "root")
+	addSign(t, db, "invoices", "billing")
+	addEntry(t, db, "b-sum", "billing", "summary", "Billing owns invoices.\nIt must never touch payments.")
+	addEntry(t, db, "leaf", "invoices", "decision", "x")
+	got, err := signs.PathTo(context.Background(), db, "leaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != "root" || got[1].ID != "billing" || got[2].ID != "invoices" {
+		t.Fatalf("path = %+v", got)
+	}
+	if got[1].Summary != "Billing owns invoices." || got[2].Summary != "Sign invoices" {
+		t.Errorf("summaries = %q, %q", got[1].Summary, got[2].Summary)
+	}
+}

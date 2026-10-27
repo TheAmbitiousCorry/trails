@@ -110,14 +110,19 @@ func Look(ctx context.Context, db *sql.DB, req LookRequest) (View, error) {
 func (p *project) summaryLine(signID string) (string, *entryRow) {
 	for _, e := range p.bySign[signID] {
 		if e.Kind == "summary" {
-			line, _, _ := strings.Cut(e.Text, "\n")
-			if line = strings.TrimSpace(line); line != "" {
-				return line, e
-			}
-			return p.signs[signID].Title, e
+			return firstParagraph(e.Text, p.signs[signID].Title), e
 		}
 	}
 	return p.signs[signID].Title, nil
+}
+
+// firstParagraph is the one rule for a summary line, shared by look and the path a read carries.
+func firstParagraph(text, title string) string {
+	line, _, _ := strings.Cut(text, "\n")
+	if line = strings.TrimSpace(line); line != "" {
+		return line
+	}
+	return title
 }
 
 func (p *project) view(signID string, depth int, taskType string) View {

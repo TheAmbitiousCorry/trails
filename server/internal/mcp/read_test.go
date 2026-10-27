@@ -107,6 +107,10 @@ func TestReadServesRequiresChainAndEdges(t *testing.T) {
 	if first["id"] != z || strings.TrimSpace(first["untrusted"].(map[string]any)["body_markdown"].(string)) != "Body of Z." {
 		t.Errorf("entry = %v", first)
 	}
+	path, _ := first["path"].([]any)
+	if len(path) != 1 || path[0].(map[string]any)["id"] != "root" || path[0].(map[string]any)["title"] == "" || path[0].(map[string]any)["summary"] == "" {
+		t.Errorf("path = %v", first["path"])
+	}
 	if got := ids(t, first["related"]); len(got) != 1 || got[0] != s {
 		t.Errorf("related = %v", got)
 	}
