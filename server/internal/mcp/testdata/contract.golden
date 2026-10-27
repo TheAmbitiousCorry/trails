@@ -384,6 +384,7 @@ refusal rules
 - self
 - split this
 - split this fork
+- stale
 - task_empty
 - unconfirmed_edits
 - unknown_entry

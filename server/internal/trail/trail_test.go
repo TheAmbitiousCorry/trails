@@ -57,7 +57,7 @@ func count(t *testing.T, db *sql.DB, q string, args ...any) int {
 func TestHumanConfirmPromotesAlone(t *testing.T) {
 	st, c := open(t)
 	id := write(t, st, c, "s-1", "Ship weekly")
-	tier, err := trail.ConfirmHuman(context.Background(), st.DB, id)
+	tier, err := trail.ConfirmHuman(context.Background(), st.DB, c, id)
 	if err != nil || tier != "verified" {
 		t.Fatalf("tier %q err %v", tier, err)
 	}
@@ -66,7 +66,7 @@ func TestHumanConfirmPromotesAlone(t *testing.T) {
 	if by != "user" {
 		t.Errorf("promoted_by = %q", by)
 	}
-	if _, err := trail.ConfirmHuman(context.Background(), st.DB, "nope"); err == nil {
+	if _, err := trail.ConfirmHuman(context.Background(), st.DB, c, "nope"); err == nil {
 		t.Error("unknown entry confirmed")
 	}
 }

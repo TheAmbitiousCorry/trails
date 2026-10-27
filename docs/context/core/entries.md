@@ -72,7 +72,7 @@ A `summary` whose own anchors match keeps its tier whatever its children do; the
 |---|---|---|
 | `provisional` | Written by an agent | Ranked below verified in search; labelled in every response |
 | `verified` | Confirmed by two distinct agent sessions that read it at `full` and called `confirm`; promotion sets `promoted_by: agents`. A session cannot confirm an entry it wrote. The write path also stores an actor `user` write as verified, and `trail.ConfirmHuman` promotes alone with `promoted_by: user`; no interface calls either. | Default rank |
-| `stale` | Any anchor fails its check, including an uncommitted edit to an anchored file; the tier it had before is kept in `tier_before_stale` and restored when every anchor passes again | Ranked below provisional; `read` returns the body with tier `stale` and a `notice` listing the failed anchors by type and path, so the reader can check the source instead of guessing |
+| `stale` | Any anchor fails its check, including an uncommitted edit to an anchored file; the tier it had before is kept in `tier_before_stale` and restored when every anchor passes again, or when a session confirms the entry: a confirm attests the body against the files as they are now, so it re-resolves the anchors, stores their hashes and restores the tier before counting the confirmation | Ranked below provisional; `read` returns the body with tier `stale` and a `notice` listing the failed anchors by type and path, so the reader can check the source instead of guessing |
 | `dormant` | Superseded, or provisional and unread for 30 days | Out of default search and off signs; reachable by id and in the browser |
 
 A dormant provisional entry is deleted after a further 30 days. A dormant superseded entry is kept.

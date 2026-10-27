@@ -467,7 +467,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, confirmOut{}, err
 		}
-		res, err := trail.Confirm(ctx, st.DB, in.SessionID, in.EntryID)
+		res, err := trail.Confirm(ctx, st.DB, checker, in.SessionID, in.EntryID)
 		if err != nil {
 			return nil, confirmOut{}, err
 		}

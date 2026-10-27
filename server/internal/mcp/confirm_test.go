@@ -3,12 +3,18 @@ package mcp_test
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
+	"github.com/TheAmbitiousCorry/trails/internal/entries"
+	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
 type agent struct {
@@ -98,6 +104,87 @@ func TestConfirmNeedsTwoSessionsAfterFullReads(t *testing.T) {
 	st.DB.QueryRow(`SELECT tier, promoted_by FROM entries WHERE id = ?`, id).Scan(&tier, &by)
 	if tier != "verified" || by != "agents" {
 		t.Errorf("stored tier %q promoted_by %q", tier, by)
+	}
+}
+
+// seedRangeEntry writes an example anchored to lines 1-2 of a.txt in the store's repository and returns its id and the file's path.
+func seedRangeEntry(t *testing.T, st *store.Store, content string) (string, string) {
+	t.Helper()
+	path := filepath.Join(st.Repo, "a.txt")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := entries.Write(context.Background(), st.DB, anchor.Checker{Repo: st.Repo}, entries.WriteRequest{Actor: "s-seed", ParentSignID: "root", Kind: "example", Title: "Anchored",
+		ReadWhen: "you need the anchored thing", BodyMarkdown: "A body.",
+		Anchors: []anchor.Anchor{{Type: "range", PathOrURL: "a.txt", RangeStart: 1, RangeEnd: 2}}})
+	if err != nil || res.Refusal != nil {
+		t.Fatalf("seed: %v %v", err, res.Refusal)
+	}
+	return res.EntryID, path
+}
+
+func anchorState(t *testing.T, st *store.Store, id string) (string, int) {
+	t.Helper()
+	var hash string
+	var ok int
+	if err := st.DB.QueryRow(`SELECT COALESCE(hash,''), ok FROM anchors WHERE entry_id = ?`, id).Scan(&hash, &ok); err != nil {
+		t.Fatal(err)
+	}
+	return hash, ok
+}
+
+func tierOf(t *testing.T, st *store.Store, id string) string {
+	t.Helper()
+	var tier string
+	if err := st.DB.QueryRow(`SELECT tier FROM entries WHERE id = ?`, id).Scan(&tier); err != nil {
+		t.Fatal(err)
+	}
+	return tier
+}
+
+func TestConfirmReanchorsAChangedFile(t *testing.T) {
+	st, addr := startServer(t)
+	id, path := seedRangeEntry(t, st, "one\ntwo\n")
+	b, c := newAgent(t, addr, ""), newAgent(t, addr, "")
+	b.readFull(id)
+	before, _ := anchorState(t, st, id)
+
+	if err := os.WriteFile(path, []byte("one\nTWO\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b.readFull(id) // the read rechecks the anchor and parks the entry as stale
+	if tier := tierOf(t, st, id); tier != "stale" {
+		t.Fatalf("after the edit, tier %q, want stale", tier)
+	}
+
+	if got := b.ok("confirm", map[string]any{"entry_id": id}); got["tier"] != "provisional" || got["confirmed_by"] != float64(1) {
+		t.Fatalf("confirm on a changed file = %v, want the tier restored and one confirmation", got)
+	}
+	if hash, ok := anchorState(t, st, id); hash == before || ok != 1 {
+		t.Errorf("anchor after confirm: hash unchanged %v, ok %d", hash == before, ok)
+	}
+
+	c.readFull(id)
+	if got := c.ok("confirm", map[string]any{"entry_id": id}); got["tier"] != "verified" || got["confirmed_by"] != float64(2) {
+		t.Fatalf("second confirm = %v, want verified", got)
+	}
+}
+
+func TestConfirmRefusedWhileAnAnchorIsMissing(t *testing.T) {
+	st, addr := startServer(t)
+	id, path := seedRangeEntry(t, st, "one\ntwo\n")
+	b := newAgent(t, addr, "")
+	b.readFull(id)
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	txt := b.refused("confirm", map[string]any{"entry_id": id}, "stale")
+	if !strings.Contains(txt, "range a.txt:1-2") {
+		t.Errorf("refusal does not name the failed anchor: %q", txt)
+	}
+	if tier := tierOf(t, st, id); tier != "stale" {
+		t.Errorf("tier after refused confirm %q, want stale", tier)
 	}
 }
 

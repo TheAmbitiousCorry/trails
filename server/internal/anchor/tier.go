@@ -80,24 +80,74 @@ func RefreshEntry(ctx context.Context, db *sql.DB, c Checker, entryID string) ([
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := storeChecks(ctx, tx, as, now); err != nil {
+		return nil, err
+	}
+	if err := setTier(ctx, tx, entryID, len(failed) > 0); err != nil {
+		return nil, err
+	}
+	return failed, tx.Commit()
+}
+
+// Reattach resolves every anchor of the entry against the repository and the web, stores the resolved hashes in place of the stored ones, and sets the tier as RefreshEntry does.
+// An anchor that does not resolve keeps its stored hash, is marked failed and is returned, so the entry stays stale.
+func Reattach(ctx context.Context, db *sql.DB, c Checker, entryID string) ([]Anchor, error) {
+	as, err := Load(ctx, db, entryID)
+	if err != nil || len(as) == 0 {
+		return nil, err
+	}
+	now := store.Now()
+	var failed []Anchor
+	for i := range as {
+		r, err := c.Resolve(ctx, as[i])
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
+		if err != nil {
+			as[i].OK, as[i].LastCheckedAt = false, now
+			failed = append(failed, as[i])
+			continue
+		}
+		as[i].Hash, as[i].FetchedAt, as[i].OK, as[i].LastCheckedAt = r.Hash, r.FetchedAt, true, now
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := storeChecks(ctx, tx, as, now); err != nil {
+		return nil, err
+	}
+	if err := setTier(ctx, tx, entryID, len(failed) > 0); err != nil {
+		return nil, err
+	}
+	return failed, tx.Commit()
+}
+
+// storeChecks writes each anchor's hash, fetch time, check time and result.
+func storeChecks(ctx context.Context, tx *sql.Tx, as []Anchor, now string) error {
 	for _, a := range as {
 		ok := 0
 		if a.OK {
 			ok = 1
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE anchors SET ok = ?, last_checked_at = ? WHERE id = ?`, ok, now, a.ID); err != nil {
-			return nil, err
+		if _, err := tx.ExecContext(ctx, `UPDATE anchors SET hash = NULLIF(?,''), fetched_at = NULLIF(?,''), last_checked_at = ?, ok = ? WHERE id = ?`,
+			a.Hash, a.FetchedAt, now, ok, a.ID); err != nil {
+			return err
 		}
 	}
-	if len(failed) > 0 {
+	return nil
+}
+
+// setTier parks the entry's tier as stale when an anchor failed, and restores it once none has.
+func setTier(ctx context.Context, tx *sql.Tx, entryID string, failed bool) error {
+	var err error
+	if failed {
 		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier_before_stale = tier, tier = 'stale' WHERE id = ? AND tier NOT IN ('stale', 'dormant')`, entryID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier = COALESCE(tier_before_stale, 'provisional'), tier_before_stale = NULL WHERE id = ? AND tier = 'stale'`, entryID)
 	}
-	if err != nil {
-		return nil, err
-	}
-	return failed, tx.Commit()
+	return err
 }
 
 // StaleCount counts the stale entries anywhere below a sign, whether the tier or a failed anchor says so.

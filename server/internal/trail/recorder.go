@@ -14,7 +14,7 @@ import (
 )
 
 // RefusalRules names every rule this package refuses with; the mcp golden file pins them and a test keeps the list equal to the source.
-var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open", "unconfirmed_edits", "closed_session"}
+var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "stale", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open", "unconfirmed_edits", "closed_session"}
 
 // Refusal is a handler error that the trail logs as refused:<Rule> and the agent sees with its fix.
 type Refusal struct {
