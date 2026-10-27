@@ -5,7 +5,7 @@ last-verified: 2026-10-27
 
 # Entries
 
-An entry is one leaf of the tree: one fact, one decision, one example, one render, or one pointer. It is the only thing agents write.
+An entry is one leaf of the tree: one fact, one decision, one example, one render, or one pointer. Entries and signs are the only things agents write.
 
 ## Fields
 
@@ -88,7 +88,7 @@ Every write passes these in order. The first failure returns the rule name and t
 6. **Fan-out.** The parent sign stays within its edge cap. The cap is owned by the signs package and the write path asks it only when the entry's kind is new under that parent, since kinds are the edges, see [signs](./signs.md#fan-out-cap).
 7. **Reachability.** The entry has exactly one parent sign and the parent is reachable from the root. An entry never hangs under two signs; a second axis is a tag, see [signs](./signs.md#virtual-signs).
 
-An update may change title, `read_when`, body, tags, anchors and links; it replaces the entry's `requires` and `see_also` links with the request's lists. Kind and parent are immutable, rule `immutable`. An agent write to an entry that is `verified` is refused with rule `verified` and stored as a new provisional entry with `conflicts_with` set.
+An update may change title, `read_when`, body, tags, anchors and links; it replaces the entry's `requires` and `see_also` links with the request's lists. Kind and parent are immutable, rule `immutable`, except through `write_sign`, which moves entries under a new sign. An agent write to an entry that is `verified` is refused with rule `verified` and stored as a new provisional entry with `conflicts_with` set.
 
 ## Versions
 

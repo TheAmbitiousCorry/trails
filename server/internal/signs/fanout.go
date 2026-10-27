@@ -14,10 +14,12 @@ import (
 const defaultFanOutCap = 7
 
 // RefusalRules names every rule this package refuses with.
-var RefusalRules = []string{"depth_cap", "unknown_entry", "look_target", "unknown_sign", "split this fork"}
+var RefusalRules = []string{"depth_cap", "unknown_entry", "look_target", "unknown_sign", "split this fork", "move_scope"}
 
 // FanOutCap is the project's edge cap per sign; the signs package is its only owner.
-func FanOutCap(ctx context.Context, db *sql.DB) (int, error) {
+func FanOutCap(ctx context.Context, db *sql.DB) (int, error) { return fanOutCap(ctx, db) }
+
+func fanOutCap(ctx context.Context, db querier) (int, error) {
 	var v sql.NullString
 	err := db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = 'fan_out_cap'`).Scan(&v)
 	if err == sql.ErrNoRows {
@@ -37,12 +39,14 @@ func FanOutCap(ctx context.Context, db *sql.DB) (int, error) {
 type unit struct {
 	name    string
 	entries []*entryRow
+	// movable is set for a kind's entries held directly by the sign, the only edges write_sign can move.
+	movable bool
 }
 
 func (p *project) units(signID string) []unit {
 	var us []unit
 	for _, k := range p.kids[signID] {
-		us = append(us, unit{p.signs[k].Title, p.subtree(k)})
+		us = append(us, unit{name: p.signs[k].Title, entries: p.subtree(k)})
 	}
 	byKind := map[string][]*entryRow{}
 	var kinds []string
@@ -53,14 +57,14 @@ func (p *project) units(signID string) []unit {
 		byKind[e.Kind] = append(byKind[e.Kind], e)
 	}
 	for _, k := range kinds {
-		us = append(us, unit{k + " entries", byKind[k]})
+		us = append(us, unit{name: k + " entries", entries: byKind[k], movable: true})
 	}
 	return us
 }
 
 // CheckFanOut refuses when one more edge under signID would exceed the cap.
 func CheckFanOut(ctx context.Context, db *sql.DB, signID string) error {
-	limit, err := FanOutCap(ctx, db)
+	limit, err := fanOutCap(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -72,11 +76,25 @@ func CheckFanOut(ctx context.Context, db *sql.DB, signID string) error {
 	if len(us)+1 <= limit {
 		return nil
 	}
-	return &trail.Refusal{Rule: "split this fork", Fix: p.proposeSplit(us, limit)}
+	return &trail.Refusal{Rule: "split this fork", Fix: p.proposeSplit(us, limit, "this sign already has")}
 }
 
-// proposeSplit assigns each edge to the most common tag among its siblings and names the groups of two or more.
-func (p *project) proposeSplit(us []unit, limit int) string {
+const splitAction = "create a sign for a group with write_sign and pass its entry ids in move"
+
+// describe names a group member and, for a kind held directly by the sign, its entry ids.
+func (u unit) describe() string {
+	if !u.movable {
+		return u.name
+	}
+	ids := make([]string, len(u.entries))
+	for i, e := range u.entries {
+		ids[i] = e.ID
+	}
+	return u.name + ": " + strings.Join(ids, ", ")
+}
+
+// proposeSplit assigns each edge to the most common tag among its siblings and names the groups of two or more, with the ids of the entries in each. subject opens the sentence that states the count.
+func (p *project) proposeSplit(us []unit, limit int, subject string) string {
 	freq := map[string]int{}
 	for _, u := range us {
 		seen := map[string]bool{}
@@ -89,7 +107,7 @@ func (p *project) proposeSplit(us []unit, limit int) string {
 			}
 		}
 	}
-	groups := map[string][]string{}
+	groups := map[string][]unit{}
 	for _, u := range us {
 		best := ""
 		for _, e := range u.entries {
@@ -100,7 +118,7 @@ func (p *project) proposeSplit(us []unit, limit int) string {
 			}
 		}
 		if best != "" {
-			groups[best] = append(groups[best], u.name)
+			groups[best] = append(groups[best], u)
 		}
 	}
 	var tags []string
@@ -109,9 +127,9 @@ func (p *project) proposeSplit(us []unit, limit int) string {
 			tags = append(tags, t)
 		}
 	}
-	head := fmt.Sprintf("this sign already has %d edges and the cap is %d; ", len(us), limit)
+	head := fmt.Sprintf("%s %d edges and the cap is %d; ", subject, len(us), limit)
 	if len(tags) == 0 {
-		return head + "no tag is shared by two edges, so tag the existing edges, then group them under new signs"
+		return head + "no tag is shared by two edges, so tag the existing edges, then group them under new signs; " + splitAction
 	}
 	sort.Slice(tags, func(i, j int) bool {
 		if len(groups[tags[i]]) != len(groups[tags[j]]) {
@@ -121,7 +139,11 @@ func (p *project) proposeSplit(us []unit, limit int) string {
 	})
 	var parts []string
 	for _, t := range tags {
-		parts = append(parts, fmt.Sprintf("%s (%s)", t, strings.Join(groups[t], ", ")))
+		members := make([]string, len(groups[t]))
+		for i, u := range groups[t] {
+			members[i] = u.describe()
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", t, strings.Join(members, "; ")))
 	}
-	return head + "move edges under new signs grouped by tag: " + strings.Join(parts, "; ")
+	return head + "move edges under new signs grouped by tag: " + strings.Join(parts, " | ") + ". " + splitAction
 }

@@ -270,7 +270,7 @@ func cleanList(in []string) []string {
 }
 
 func (w *writer) create(ctx context.Context, tx *sql.Tx, tier string) (string, error) {
-	id, err := freeID(ctx, tx, slug(w.req.Title))
+	id, err := store.FreeID(ctx, tx, store.Slug(w.req.Title, "entry"))
 	if err != nil {
 		return "", err
 	}

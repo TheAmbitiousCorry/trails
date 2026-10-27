@@ -320,6 +320,42 @@ input_schema: {
   "type": "object"
 }
 
+tool write_sign
+description: Create a sign under parent_sign_id, optionally moving entries that hang directly under that parent into it. Use it to act on a split this fork refusal: pass the entry ids of one proposed group in move. Returns sign_id, title and how many entries moved.
+input_schema: {
+  "additionalProperties": false,
+  "properties": {
+    "move": {
+      "description": "ids of entries hanging directly under parent_sign_id to move under the new sign",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "null",
+        "array"
+      ]
+    },
+    "parent_sign_id": {
+      "description": "the sign the new sign hangs under",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "the id session_start returned",
+      "type": "string"
+    },
+    "title": {
+      "description": "1 to 80 characters; the sign id is a slug of it",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "parent_sign_id",
+    "title"
+  ],
+  "type": "object"
+}
+
 refusal rules
 - action
 - anchor
@@ -332,6 +368,7 @@ refusal rules
 - gaps_open
 - immutable
 - look_target
+- move_scope
 - paraphrase
 - reason
 - schema:bytes

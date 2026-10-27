@@ -33,8 +33,14 @@ type project struct {
 	df      map[string]int
 }
 
+// querier is what load and the cap check need; a *sql.DB and a *sql.Tx both satisfy it.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // load skips dormant entries: they are off signs by definition.
-func load(ctx context.Context, db *sql.DB) (*project, error) {
+func load(ctx context.Context, db querier) (*project, error) {
 	p := &project{signs: map[string]*signRow{}, kids: map[string][]string{}, bySign: map[string][]*entryRow{}, df: map[string]int{}}
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(parent_id, ''), title FROM signs ORDER BY position, title, id`)
 	if err != nil {

@@ -31,7 +31,11 @@ A sign's entries of one kind show as one edge each when alone, and as one `group
 
 ## Fan-out cap
 
-A sign holds at most seven edges by default. A write that would create an eighth is refused with `split this fork`, and the response proposes a grouping of the existing edges from their tags. The cap is a project setting. Entries under a sign count as one edge per kind present, so a sign's edge count is its child signs plus its distinct entry kinds.
+A sign holds at most seven edges by default. A write that would create an eighth is refused with `split this fork`, and the response proposes a grouping of the existing edges from their tags, naming the entry ids in each group and ending with how to act on it: create a sign for a group with `write_sign` and pass its entry ids in `move`. The cap is a project setting. Entries under a sign count as one edge per kind present, so a sign's edge count is its child signs plus its distinct entry kinds.
+
+## Creating a sign
+
+A sign is created with `write_sign` under an existing parent, with a title and an optional list of entries to move under it from that parent. The id is a slug of the title. The parent's fan-out is checked as it will stand after the move plus the new sign, and the new sign's own fan-out is checked over the moved entries; either over the cap refuses with `split this fork`. Entries elsewhere than under the parent refuse with `move_scope`. A human creates a sign the same way from the sign page in the browser.
 
 ## Orient and local view
 

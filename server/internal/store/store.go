@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -192,4 +193,35 @@ func (s *Store) seed(projectTitle string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+const maxSlug = 60
+
+// Slug lowercases title into hyphen-joined [a-z0-9] words of at most 60 characters; fallback stands in when nothing is left.
+func Slug(title, fallback string) string {
+	s := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(title), "-"), "-")
+	if len(s) > maxSlug {
+		s = strings.Trim(s[:maxSlug], "-")
+	}
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
+// FreeID returns base, or base-2, base-3 and so on, the first that no entry or sign holds and no expired entry held. Entries and signs share one id space.
+func FreeID(ctx context.Context, tx *sql.Tx, base string) (string, error) {
+	for n := 1; ; n++ {
+		id := base
+		if n > 1 {
+			id = base + "-" + strconv.Itoa(n)
+		}
+		var taken int
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM entries WHERE id = ?) OR EXISTS(SELECT 1 FROM signs WHERE id = ?) OR EXISTS(SELECT 1 FROM ids WHERE id = ?)`, id, id, id).Scan(&taken)
+		if err != nil || taken == 0 {
+			return id, err
+		}
+	}
 }

@@ -133,3 +133,52 @@ func TestReadServesRequiresChainAndEdges(t *testing.T) {
 		t.Errorf("prerequisite read events = %d, want 2", n)
 	}
 }
+
+func TestWriteSignThroughTheRecorder(t *testing.T) {
+	st, addr := startServer(t)
+	ctx := context.Background()
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(ctx, &sdk.StreamableClientTransport{Endpoint: "http://" + addr + "/mcp", HTTPClient: http.DefaultClient}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	call := func(name string, args map[string]any) *sdk.CallToolResult {
+		res, err := sess.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	sid := structured(t, call("session_start", map[string]any{"task": "split"}), nil)["session_id"].(string)
+	call("write", map[string]any{"session_id": sid, "parent_sign_id": "root", "kind": "decision", "title": "Ship weekly",
+		"read_when": "you plan a release", "body": "We ship on Fridays.", "decided_by": "ana", "decided_at": "2026-10-27"})
+
+	out := structured(t, call("write_sign", map[string]any{"session_id": sid, "parent_sign_id": "root", "title": "Releases", "move": []string{"ship-weekly"}}), nil)
+	if out["sign_id"] != "releases" || out["moved"] != float64(1) || out["lines"].(float64) < 1 {
+		t.Fatalf("write_sign = %v", out)
+	}
+	var target, result string
+	st.DB.QueryRow(`SELECT target, result FROM events WHERE tool = 'write_sign' ORDER BY id DESC LIMIT 1`).Scan(&target, &result)
+	if target != "releases" || result != "ok" {
+		t.Errorf("event target %q result %q", target, result)
+	}
+
+	res := call("write_sign", map[string]any{"session_id": sid, "parent_sign_id": "root", "title": "Again", "move": []string{"ghost"}})
+	if !res.IsError {
+		t.Fatal("move_scope not refused")
+	}
+	st.DB.QueryRow(`SELECT target, result FROM events WHERE tool = 'write_sign' ORDER BY id DESC LIMIT 1`).Scan(&target, &result)
+	if target != "root" || result != "refused:move_scope" {
+		t.Errorf("refused event target %q result %q", target, result)
+	}
+
+	call("session_end", map[string]any{"session_id": sid})
+	if res := call("write_sign", map[string]any{"session_id": sid, "parent_sign_id": "root", "title": "Late"}); !res.IsError {
+		t.Error("closed session accepted write_sign")
+	}
+	st.DB.QueryRow(`SELECT result FROM events WHERE tool = 'write_sign' ORDER BY id DESC LIMIT 1`).Scan(&result)
+	if result != "refused:closed_session" {
+		t.Errorf("closed result = %q", result)
+	}
+}

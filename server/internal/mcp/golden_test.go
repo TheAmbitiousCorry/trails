@@ -119,7 +119,7 @@ func TestContractCoversAllTools(t *testing.T) {
 		total += len(tool.Description)
 	}
 	sort.Strings(names)
-	if got := strings.Join(names, ","); got != "confirm,look,read,resolve_gap,search,session_end,session_start,write" {
+	if got := strings.Join(names, ","); got != "confirm,look,read,resolve_gap,search,session_end,session_start,write,write_sign" {
 		t.Errorf("tools = %s", got)
 	}
 	// The spec caps descriptions at 1,500 tokens; four characters a token is the usual estimate.

@@ -45,6 +45,14 @@ type outcomeKey struct{}
 type outcome struct {
 	result string
 	shown  []string
+	target string
+}
+
+// SetTarget replaces the logged target, for a call whose target exists only once the handler has run.
+func SetTarget(ctx context.Context, target string) {
+	if o, ok := ctx.Value(outcomeKey{}).(*outcome); ok {
+		o.target = target
+	}
 }
 
 // SetResult replaces the logged result of a successful call, for example with "miss".
@@ -93,7 +101,7 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 				}
 			}
 			// Detached from ctx so a cancelled request still closes its event.
-			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ? WHERE id = ?`, result, shown, eventID)
+			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ?, target = COALESCE(NULLIF(?, ''), target) WHERE id = ?`, result, shown, oc.target, eventID)
 		}()
 
 		if !c.Mint {

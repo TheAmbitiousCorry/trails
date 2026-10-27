@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
@@ -58,34 +55,4 @@ func appendVersion(ctx context.Context, tx *sql.Tx, id string, w *writer, update
 	_, err := tx.ExecContext(ctx, `INSERT INTO versions (entry_id, body_json, title, read_when, anchors_json, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, string(w.body), w.req.Title, w.req.ReadWhen, anchorsJSON, w.req.Actor, store.Now())
 	return err
-}
-
-var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
-
-const maxSlug = 60
-
-func slug(title string) string {
-	s := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(title), "-"), "-")
-	if len(s) > maxSlug {
-		s = strings.Trim(s[:maxSlug], "-")
-	}
-	if s == "" {
-		return "entry"
-	}
-	return s
-}
-
-// freeID returns base, or base-2, base-3 and so on, the first that no entry or sign holds and no expired entry held.
-func freeID(ctx context.Context, tx *sql.Tx, base string) (string, error) {
-	for n := 1; ; n++ {
-		id := base
-		if n > 1 {
-			id = base + "-" + strconv.Itoa(n)
-		}
-		var taken int
-		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM entries WHERE id = ?) OR EXISTS(SELECT 1 FROM signs WHERE id = ?) OR EXISTS(SELECT 1 FROM ids WHERE id = ?)`, id, id, id).Scan(&taken)
-		if err != nil || taken == 0 {
-			return id, err
-		}
-	}
 }

@@ -195,6 +195,25 @@ type writeOut struct {
 	Lines  int  `json:"lines"`
 }
 
+type writeSignIn struct {
+	SessionID    string   `json:"session_id" jsonschema:"the id session_start returned"`
+	ParentSignID string   `json:"parent_sign_id" jsonschema:"the sign the new sign hangs under"`
+	Title        string   `json:"title" jsonschema:"1 to 80 characters; the sign id is a slug of it"`
+	Move         []string `json:"move,omitempty" jsonschema:"ids of entries hanging directly under parent_sign_id to move under the new sign"`
+}
+
+// Call logs the parent; the handler replaces it with the new sign's id once there is one.
+func (w writeSignIn) Call() trail.Call {
+	return trail.Call{SessionID: w.SessionID, Target: w.ParentSignID}
+}
+
+type writeSignOut struct {
+	SignID string `json:"sign_id"`
+	Title  string `json:"title"`
+	Moved  int    `json:"moved"`
+	Lines  int    `json:"lines"`
+}
+
 const (
 	defaultSearchLimit = 5
 	maxSearchLimit     = 10
@@ -321,6 +340,24 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			return nil, writeOut{}, res.Refusal
 		}
 		out := writeOut{EntryID: res.EntryID, Tier: res.Tier, Merged: res.Merged}
+		out.Lines = countLines(out)
+		return nil, out, nil
+	}))
+
+	sdk.AddTool(srv, &sdk.Tool{
+		Name: "write_sign",
+		Description: "Create a sign under parent_sign_id, optionally moving entries that hang directly under that parent into it. " +
+			"Use it to act on a split this fork refusal: pass the entry ids of one proposed group in move. Returns sign_id, title and how many entries moved.",
+	}, trail.Record(rec, "write_sign", func(ctx context.Context, _ *sdk.CallToolRequest, in writeSignIn) (*sdk.CallToolResult, writeSignOut, error) {
+		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
+			return nil, writeSignOut{}, err
+		}
+		c, err := signs.CreateSign(ctx, st.DB, signs.CreateRequest{ParentID: in.ParentSignID, Title: in.Title, Move: in.Move})
+		if err != nil {
+			return nil, writeSignOut{}, err
+		}
+		trail.SetTarget(ctx, c.SignID)
+		out := writeSignOut{SignID: c.SignID, Title: c.Title, Moved: c.Moved}
 		out.Lines = countLines(out)
 		return nil, out, nil
 	}))
