@@ -123,16 +123,16 @@ function edgeCounts(e: Edge): string {
           <label for="new-sign-title" class="muted small">Title</label>
           <input id="new-sign-title" v-model="newTitle" type="text" maxlength="80" required autocomplete="off" :aria-describedby="createError ? 'new-sign-error' : undefined" :aria-invalid="!!createError" />
           <button type="submit" :disabled="creating">Add sign</button>
+          <div v-if="createError" id="new-sign-error" class="refusal" role="alert">
+            <template v-if="'rule' in createError"><strong>{{ createError.rule }}</strong>: {{ createError.fix }}</template>
+            <template v-else>{{ createError.message }}</template>
+          </div>
           <fieldset v-if="childSigns.length || directEntries.length" class="move-under">
             <legend class="muted small">Move under it</legend>
             <label v-for="c in childSigns" :key="c.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="c.id" />{{ c.title }} <span class="pill pill-kind">sign</span></label>
             <label v-for="e in directEntries" :key="e.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="e.id" />{{ e.title }} <span class="pill pill-kind">{{ e.kind }}</span></label>
           </fieldset>
         </form>
-        <div v-if="createError" id="new-sign-error" class="refusal" role="alert">
-          <template v-if="'rule' in createError"><strong>{{ createError.rule }}</strong>: {{ createError.fix }}</template>
-          <template v-else>{{ createError.message }}</template>
-        </div>
       </section>
     </template>
   </Load>
