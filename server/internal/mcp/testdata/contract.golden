@@ -151,7 +151,7 @@ input_schema: {
 }
 
 tool session_end
-description: End the session when the task is done. Refuses while the session has open gaps and lists them; resolve each with resolve_gap, then call again. Returns closed and the counts of reads, writes and confirms.
+description: End the session when the task is done. Refuses while the session has open gaps or entries anchored to files you edited and lists them; resolve each gap with resolve_gap, write or confirm each entry, then call again. Returns closed and the counts of reads, writes and confirms.
 input_schema: {
   "additionalProperties": false,
   "properties": {
@@ -385,6 +385,7 @@ refusal rules
 - split this
 - split this fork
 - task_empty
+- unconfirmed_edits
 - unknown_entry
 - unknown_gap
 - unknown_session

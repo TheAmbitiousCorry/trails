@@ -8,11 +8,13 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | MCP file and entry | `.mcp.json`: `{"type":"http","url":...}` | `.codex/config.toml`: `[mcp_servers.trails] url = ...` | `.gemini/settings.json`: `{"httpUrl": ...}` (`url` means SSE, wrong) | `.cursor/mcp.json`: `{"url": ...}` |
 | After-read event | `PostToolUse`, matcher `Read\|Grep\|Glob` | `PostToolUse`, but reads go through shell, no path field: off-trail unsupported | `AfterTool`, matcher `read_.*`, tools `read_file`, `grep_search`, `glob` | `postToolUse`, matcher `Read` |
 | Reply the agent sees | stdout JSON `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `additional_context` |
+| After-edit event | `PostToolUse`, matcher `Edit\|Write\|MultiEdit\|NotebookEdit` | none recorded: no edit gate | none recorded: no edit gate | `afterFileEdit`, unverified |
 | Stop event | `Stop` | `Stop` | `AfterAgent` | `stop` |
 | Block the stop | `{"decision":"block","reason":...}` or exit 2 | same | `{"decision":"deny","reason":...}` or exit 2 | `{"followup_message":...}`, a follow-up turn, capped by `loop_limit` |
 | Re-entry visible | `stop_hook_active` | `stop_hook_active` | `stop_hook_active` | `loop_count` |
 | Runtime session id | stdin `session_id` | stdin `session_id` | stdin `session_id`, env `GEMINI_SESSION_ID` | stdin `conversation_id` |
 | Path field on read | verified: Read `tool_input.file_path`, Grep and Glob `tool_input.path` | n/a | unverified, tool param is `file_path` | unverified |
+| Path field on edit | `tool_input.file_path` | n/a | n/a | `file_path` (unverified) |
 
 The session-start hook reads the repo from stdin `cwd` when the payload has it and from its own working directory otherwise; the field is unverified outside Claude Code.
 

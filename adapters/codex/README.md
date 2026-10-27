@@ -9,4 +9,4 @@ url = "http://127.0.0.1:7777/mcp"
 3. Copy `../generic/hooks/` to `.trail/hooks/` in the project (the wiring below expects that path).
 4. Merge `hooks.json` from this directory into `.codex/hooks.json` (the project must be trusted). It wires `SessionStart` and `Stop`.
 
-Off-trail recording is unsupported on Codex: its file reads go through the shell, so no hook payload carries a path.
+Off-trail recording is unsupported on Codex: its file reads go through the shell, so no hook payload carries a path. The edit gate is not available there: `adapters/HOOKS.md` records no after-edit event for Codex.

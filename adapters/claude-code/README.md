@@ -8,6 +8,6 @@ The repo is itself a Claude Code plugin: `.claude-plugin/plugin.json`, `skills/t
 { "mcpServers": { "trails": { "type": "http", "url": "http://127.0.0.1:7777/mcp" } } }
 ```
 3. Copy `../generic/hooks/` to `.trail/hooks/` in the project (the wiring below expects that path).
-4. Merge the `hooks` key of `hooks/settings.json` from this directory into `.claude/settings.json`. It wires `SessionStart`, `PostToolUse` (matcher `Read|Grep|Glob`) and `Stop`.
+4. Merge the `hooks` key of `hooks/settings.json` from this directory into `.claude/settings.json`. It wires `SessionStart`, `PostToolUse` (matchers `Read|Grep|Glob` for off-trail and `Edit|Write|MultiEdit|NotebookEdit` for the edit gate) and `Stop`.
 
 The read path is taken from `tool_input.file_path`, which is unverified for `Read` and absent for `Grep` and `Glob`: capture one real `PostToolUse` payload and set `TRAILS_PATH_FIELD` in the hook command if the field differs. Calls with no path are ignored.

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
+	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
 // forceAfter is the stop-check call that closes a session the agent never ended.
@@ -19,6 +20,7 @@ const forceAfter = 3
 // registerAPI mounts the hook endpoints; they are plain JSON so a shell script with curl can call them.
 func registerAPI(mux *http.ServeMux, st *store.Store, addr string) {
 	mux.Handle("/api/off-trail", guard(addr, postJSON(st, offTrail)))
+	mux.Handle("/api/edited", guard(addr, postJSON(st, edited)))
 	mux.Handle("/api/stop-check", guard(addr, postJSON(st, stopCheck)))
 }
 
@@ -83,6 +85,45 @@ func offTrail(ctx context.Context, st *store.Store, in map[string]any) (any, err
 	return sp, nil
 }
 
+type editedReply struct {
+	Entries []signpost `json:"entries"`
+}
+
+// edited records an edit event and replies with every live entry whose file, range or dir anchor covers the path.
+func edited(ctx context.Context, st *store.Store, in map[string]any) (any, error) {
+	reply := editedReply{Entries: []signpost{}}
+	sid, ok, err := openSession(ctx, st.DB, str(in, "runtime_session_id"))
+	p := str(in, "path")
+	if err != nil || !ok || p == "" {
+		return reply, err
+	}
+	rel := repoRelative(st.Repo, p)
+	if _, err := st.DB.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
+		return nil, err
+	}
+	rows, err := st.DB.QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
+		FROM anchors a JOIN entries e ON e.id = a.entry_id
+		WHERE a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
+		ORDER BY e.created_at, e.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var id, readWhen, typ, ap, created string
+		if err := rows.Scan(&id, &readWhen, &typ, &ap, &created); err != nil {
+			return nil, err
+		}
+		ap = strings.TrimSuffix(path.Clean(ap), "/")
+		if (typ != "dir" && ap == rel || typ == "dir" && strings.HasPrefix(rel, ap+"/")) && !seen[id] {
+			seen[id] = true
+			reply.Entries = append(reply.Entries, signpost{id, readWhen})
+		}
+	}
+	return reply, rows.Err()
+}
+
 // repoRelative reports p relative to the repo when it lies under it, else as given.
 func repoRelative(repo, p string) string {
 	if filepath.IsAbs(p) {
@@ -128,10 +169,16 @@ type gapRef struct {
 }
 
 type stopReply struct {
-	Open   bool     `json:"open"`
-	Blocks int      `json:"blocks"`
-	Forced bool     `json:"forced,omitempty"`
-	Gaps   []gapRef `json:"gaps"`
+	Open   bool      `json:"open"`
+	Blocks int       `json:"blocks"`
+	Forced bool      `json:"forced,omitempty"`
+	Gaps   []gapRef  `json:"gaps"`
+	Edits  []editRef `json:"edits"`
+}
+
+type editRef struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
 }
 
 func stopCheck(ctx context.Context, st *store.Store, in map[string]any) (any, error) {
@@ -148,7 +195,7 @@ func stopCheck(ctx context.Context, st *store.Store, in map[string]any) (any, er
 		if _, err := st.DB.ExecContext(ctx, `UPDATE sessions SET ended_at = ?, ended_by = 'forced' WHERE id = ? AND ended_at IS NULL`, store.Now(), sid); err != nil {
 			return nil, err
 		}
-		return stopReply{Blocks: blocks, Forced: true, Gaps: []gapRef{}}, nil
+		return stopReply{Blocks: blocks, Forced: true, Gaps: []gapRef{}, Edits: []editRef{}}, nil
 	}
 	rows, err := st.DB.QueryContext(ctx, `SELECT id, COALESCE(query, paths_json, '') FROM gaps WHERE session_id = ? AND state = 'open' ORDER BY id`, sid)
 	if err != nil {
@@ -163,5 +210,16 @@ func stopCheck(ctx context.Context, st *store.Store, in map[string]any) (any, er
 		}
 		gaps = append(gaps, g)
 	}
-	return stopReply{Open: true, Blocks: blocks, Gaps: gaps}, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	pending, err := trail.UnconfirmedEdits(ctx, st.DB, sid)
+	if err != nil {
+		return nil, err
+	}
+	edits := []editRef{}
+	for _, e := range pending {
+		edits = append(edits, editRef{e.ID, e.Path})
+	}
+	return stopReply{Open: true, Blocks: blocks, Gaps: gaps, Edits: edits}, nil
 }

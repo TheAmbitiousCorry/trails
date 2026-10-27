@@ -19,7 +19,7 @@ Responses are plain JSON, and every response but `session_start` carries a `line
 | `write_sign` | parent_sign_id, title (1 to 80 characters), move (entry and child sign ids under the parent) | sign_id (a slug of the title), title, moved (count), `lines` | `unknown_sign`, `schema:title`, `move_scope`, `split this fork` |
 | `confirm` | entry_id | entry_id, the new tier, `confirmed_by` (distinct sessions that have confirmed it) | `unknown_entry`; `unread` when the caller did not `read` it at `full` in this session; `self` when the caller wrote it |
 | `resolve_gap` | gap_id, action (fill, merge, dismiss), target_id, reason (200 characters max) | gap_id, state, resolution, target_id | `dismiss_cap` at the fourth dismissal in a session; `unknown_gap` for another session's gap; `gap_closed`; `fill_target` when the target was not written by this session; `reason`; `action` |
-| `session_end` | | `closed` with counts of reads, writes, confirms | `gaps_open` while any remain, with the open gaps listed in the fix |
+| `session_end` | | `closed` with counts of reads, writes, confirms | `gaps_open` while any remain, with the open gaps listed in the fix; `unconfirmed_edits` while any [edited entry](./trail.md#edited-entries) remains, with each entry id and the path edited listed in the fix |
 
 Markdown in and out: agents write Markdown, the server converts to ProseMirror JSON, validates, stores, and converts back for `read`. The adapter is goldmark-based. Round-trip is defined as JSON to Markdown to JSON structural equality, and the Markdown the server emits is canonical: emitting it twice gives the same bytes. A Markdown construct outside the content schema is refused with `unsupported: <construct>`.
 

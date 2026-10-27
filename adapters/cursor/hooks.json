@@ -12,6 +12,11 @@
         "matcher": "Read"
       }
     ],
+    "afterFileEdit": [
+      {
+        "command": "TRAILS_CONTEXT_FORMAT=cursor TRAILS_SESSION_FIELD=conversation_id TRAILS_PATH_FIELD=file_path .trail/hooks/trails-edited.sh"
+      }
+    ],
     "stop": [
       {
         "command": "TRAILS_BLOCK_FORMAT=cursor TRAILS_SESSION_FIELD=conversation_id .trail/hooks/trails-stop.sh"

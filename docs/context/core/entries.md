@@ -50,7 +50,7 @@ Caps are per-kind settings in the project config. The defaults above hold until 
 
 ## Anchors
 
-An anchor is the checkable claim behind an entry. The server re-checks an entry's anchors when an agent reads it through the MCP and on a sweep that runs at startup and every six hours. The tier column is stored and rewritten by those checks, so a sign's stale count reflects an entry only after it has been read or swept.
+An anchor is the checkable claim behind an entry. The server re-checks an entry's anchors when an agent reads it through the MCP and on a sweep that runs at startup and every six hours. The tier column is stored and rewritten by those checks, so a sign's stale count reflects an entry only after it has been read or swept. An entry written from a doc anchors the doc and the code it describes, so a change to either makes it stale.
 
 Column use per type: `file`, `range` and `dir` keep the path in `path_or_url` and the sha256 in `hash`; `commit` and `produced_by` keep the sha in `hash`, and `produced_by` keeps the command in `path_or_url`; `url` keeps the url in `path_or_url`, the body hash in `hash` and the fetch time in `fetched_at`; `transcript` keeps `provider:id` in `extra`.
 

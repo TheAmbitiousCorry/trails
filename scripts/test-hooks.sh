@@ -80,6 +80,17 @@ expect "cursor stop" '.followup_message | startswith("Trails session still open"
 out=$(printf '{"session_id":"rt-claude"}' | "$hooks/trails-session-start.sh")
 [ "$out" = "Trails runtime_session_id: rt-claude" ] || fail "plain session-start: got '$out'"
 
+# Edit gate: an edit to an anchored file replies the entry and the stop hook names it.
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/a.go"}}' "$tmp/repo" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-edited.sh")
+expect "claude edited" ".hookSpecificOutput.hookEventName == \"PostToolUse\" and .hookSpecificOutput.additionalContext == \"Trails has 1 entries anchored to this file; update or confirm each before ending the session: $entry (you touch package a)\"" "$out"
+out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/other.txt"}}' "$tmp/repo" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-edited.sh")
+expect_empty "claude edited unanchored" "$out"
+out=$(printf '{"conversation_id":"rt-cursor","file_path":"src/a.go"}' | TRAILS_SESSION_FIELD=conversation_id TRAILS_PATH_FIELD=file_path TRAILS_CONTEXT_FORMAT=cursor "$hooks/trails-edited.sh")
+expect "cursor edited" ".additional_context | startswith(\"Trails has 1 entries anchored to this file\")" "$out"
+printf '{"session_id":"rt-codex","tool_input":{"file_path":"src/a.go"}}' | "$hooks/trails-edited.sh" >/dev/null
+out=$(printf '{"session_id":"rt-codex"}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
+expect "stop with edits" ".decision == \"block\" and (.reason | contains(\"Trails: entries anchored to files you edited, not yet updated or confirmed: $entry (src/a.go)\"))" "$out"
+
 # The claude session has had one block; two more force it closed and the third prints nothing.
 printf '{"session_id":"rt-claude"}' | "$hooks/trails-stop.sh" >/dev/null
 out=$(printf '{"session_id":"rt-claude"}' | "$hooks/trails-stop.sh")
@@ -124,7 +135,7 @@ Trails runtime_session_id: rt-auto" ] || fail "no server, no binary: got '$out'"
 # An unknown session and an unreachable server both pass through silently.
 out=$(printf '{"session_id":"nobody"}' | "$hooks/trails-stop.sh")
 expect_empty "unknown session stop" "$out"
-for s in trails-session-start trails-off-trail trails-stop; do
+for s in trails-session-start trails-off-trail trails-edited trails-stop; do
   set +e
   out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"src/a.go"}}' | TRAILS_BIN=/nonexistent TRAILS_URL=http://127.0.0.1:1 "$hooks/$s.sh" 2>&1)
   rc=$?

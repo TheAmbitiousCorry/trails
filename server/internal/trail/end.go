@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
@@ -38,6 +39,62 @@ func OpenGaps(ctx context.Context, db *sql.DB, sessionID string) ([]OpenGapRow, 
 	return out, rows.Err()
 }
 
+// EditedEntry is a live entry anchored to a file the session edited and has since neither written nor confirmed.
+type EditedEntry struct {
+	ID, Path string
+}
+
+// UnconfirmedEdits lists the session's edited and unresolved entries, in entry id order. An entry is unresolved when the latest ok edit event on a path it anchors is newer than the latest ok write, scores or confirm event that targets it.
+func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]EditedEntry, error) {
+	rows, err := db.QueryContext(ctx, `SELECT e.id, a.type, a.path_or_url, ed.id, ed.target,
+			COALESCE((SELECT MAX(r.id) FROM events r WHERE r.session_id = ed.session_id AND r.target = e.id AND r.result = 'ok' AND r.tool IN ('write', 'write_scores', 'confirm')), 0)
+		FROM events ed, anchors a JOIN entries e ON e.id = a.entry_id
+		WHERE ed.session_id = ? AND ed.tool = 'edit' AND ed.result = 'ok'
+			AND a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
+		ORDER BY e.id, ed.id`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	latest := map[string]struct {
+		edit int64
+		path string
+	}{}
+	resolved := map[string]int64{}
+	var order []string
+	for rows.Next() {
+		var id, typ, ap, target string
+		var editID, resolvedID int64
+		if err := rows.Scan(&id, &typ, &ap, &editID, &target, &resolvedID); err != nil {
+			return nil, err
+		}
+		ap = strings.TrimSuffix(path.Clean(ap), "/")
+		if !(typ != "dir" && ap == target) && !(typ == "dir" && strings.HasPrefix(target, ap+"/")) {
+			continue
+		}
+		resolved[id] = resolvedID
+		if cur, seen := latest[id]; !seen {
+			order = append(order, id)
+		} else if cur.edit > editID {
+			continue
+		}
+		latest[id] = struct {
+			edit int64
+			path string
+		}{editID, target}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []EditedEntry
+	for _, id := range order {
+		if latest[id].edit > resolved[id] {
+			out = append(out, EditedEntry{id, latest[id].path})
+		}
+	}
+	return out, nil
+}
+
 // EndSession closes the session for the agent, or refuses with its open gaps listed. A session already closed is reported, not changed.
 func EndSession(ctx context.Context, db *sql.DB, sessionID string) (EndCounts, error) {
 	gaps, err := OpenGaps(ctx, db, sessionID)
@@ -50,6 +107,17 @@ func EndSession(ctx context.Context, db *sql.DB, sessionID string) (EndCounts, e
 			parts[i] = fmt.Sprintf("gap %d: %q", g.ID, g.Query)
 		}
 		return EndCounts{}, &Refusal{Rule: "gaps_open", Fix: "resolve each with resolve_gap (fill, merge or dismiss), then call session_end again. " + strings.Join(parts, "; ")}
+	}
+	edits, err := UnconfirmedEdits(ctx, db, sessionID)
+	if err != nil {
+		return EndCounts{}, err
+	}
+	if len(edits) > 0 {
+		parts := make([]string, len(edits))
+		for i, e := range edits {
+			parts[i] = fmt.Sprintf("%s (%s)", e.ID, e.Path)
+		}
+		return EndCounts{}, &Refusal{Rule: "unconfirmed_edits", Fix: "re-read each entry, then write it with the change or confirm it unchanged, and call session_end again. " + strings.Join(parts, "; ")}
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE sessions SET ended_at = ?, ended_by = 'agent' WHERE id = ? AND ended_at IS NULL`, store.Now(), sessionID); err != nil {
 		return EndCounts{}, err

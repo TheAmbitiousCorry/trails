@@ -194,7 +194,7 @@ func buildRoute(ctx context.Context, db *sql.DB, id string) (route []routeStep, 
 	for i := 0; i < len(events); i++ {
 		ev := events[i]
 		switch ev.tool {
-		case "session_start", "write_scores", "sweep":
+		case "session_start", "write_scores", "sweep", "edit":
 			continue
 		case "off_trail":
 			row := offTrailRow{At: ev.at, Path: ev.target}

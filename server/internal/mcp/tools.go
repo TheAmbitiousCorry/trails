@@ -498,7 +498,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "session_end",
-		Description: "End the session when the task is done. Refuses while the session has open gaps and lists them; resolve each with resolve_gap, then call again. " +
+		Description: "End the session when the task is done. Refuses while the session has open gaps or entries anchored to files you edited and lists them; resolve each gap with resolve_gap, write or confirm each entry, then call again. " +
 			"Returns closed and the counts of reads, writes and confirms.",
 	}, trail.Record(rec, "session_end", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionEndIn) (*sdk.CallToolResult, sessionEndOut, error) {
 		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
