@@ -320,12 +320,12 @@ input_schema: {
 }
 
 tool write_sign
-description: Create a sign under parent_sign_id, optionally moving entries that hang directly under that parent into it. Use it to act on a split this fork refusal: pass the entry ids of one proposed group in move. Returns sign_id, title and how many entries moved.
+description: Create a sign under parent_sign_id, optionally moving entries and child signs that hang directly under that parent into it. Use it to act on a split this fork refusal: pass the ids of one proposed group in move. Returns sign_id, title and how many entries and signs moved.
 input_schema: {
   "additionalProperties": false,
   "properties": {
     "move": {
-      "description": "ids of entries hanging directly under parent_sign_id to move under the new sign",
+      "description": "ids of entries and child signs hanging directly under parent_sign_id to move under the new sign; a moved sign brings its subtree",
       "items": {
         "type": "string"
       },

@@ -231,7 +231,7 @@ type writeSignIn struct {
 	SessionID    string   `json:"session_id" jsonschema:"the id session_start returned"`
 	ParentSignID string   `json:"parent_sign_id" jsonschema:"the sign the new sign hangs under"`
 	Title        string   `json:"title" jsonschema:"1 to 80 characters; the sign id is a slug of it"`
-	Move         []string `json:"move,omitempty" jsonschema:"ids of entries hanging directly under parent_sign_id to move under the new sign"`
+	Move         []string `json:"move,omitempty" jsonschema:"ids of entries and child signs hanging directly under parent_sign_id to move under the new sign; a moved sign brings its subtree"`
 }
 
 // Call logs the parent; the handler replaces it with the new sign's id once there is one.
@@ -381,8 +381,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "write_sign",
-		Description: "Create a sign under parent_sign_id, optionally moving entries that hang directly under that parent into it. " +
-			"Use it to act on a split this fork refusal: pass the entry ids of one proposed group in move. Returns sign_id, title and how many entries moved.",
+		Description: "Create a sign under parent_sign_id, optionally moving entries and child signs that hang directly under that parent into it. " +
+			"Use it to act on a split this fork refusal: pass the ids of one proposed group in move. Returns sign_id, title and how many entries and signs moved.",
 	}, trail.Record(rec, "write_sign", func(ctx context.Context, _ *sdk.CallToolRequest, in writeSignIn) (*sdk.CallToolResult, writeSignOut, error) {
 		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
 			return nil, writeSignOut{}, err
@@ -513,10 +513,10 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	if err != nil {
 		return o, err
 	}
-	err = db.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM signs WHERE parent_id = ?) + (SELECT COUNT(*) FROM entries WHERE sign_id = ?),
-		(SELECT COUNT(*) FROM entries)`, o.RootSign.ID, o.RootSign.ID).Scan(&o.EdgeCount, &o.EntryCount)
-	if err != nil {
+	if o.EdgeCount, err = signs.EdgeCount(ctx, db, o.RootSign.ID); err != nil {
+		return o, err
+	}
+	if err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries`).Scan(&o.EntryCount); err != nil {
 		return o, err
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id, description FROM tags WHERE defined = 1 ORDER BY id`)

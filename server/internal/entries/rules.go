@@ -281,8 +281,16 @@ func fanOut(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	}
 	var n int
 	err := w.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE sign_id = ? AND kind = ?`, w.req.ParentSignID, w.req.Kind).Scan(&n)
-	if err != nil || n > 0 {
+	if err != nil {
 		return nil, err
+	}
+	// A lone summary is no edge: the first summary adds none and the second adds the summary edge.
+	newEdge := n == 0
+	if w.req.Kind == "summary" {
+		newEdge = n == 1
+	}
+	if !newEdge {
+		return nil, nil
 	}
 	err = signs.CheckFanOut(ctx, w.db, w.req.ParentSignID)
 	var ref *trail.Refusal

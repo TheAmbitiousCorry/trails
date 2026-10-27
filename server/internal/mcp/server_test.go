@@ -74,7 +74,7 @@ func TestVerticalThread(t *testing.T) {
 		t.Fatal("no session_id")
 	}
 	o := start["orient"].(map[string]any)
-	if o["entry_count"] != float64(1) || o["edge_count"] != float64(1) {
+	if o["entry_count"] != float64(1) || o["edge_count"] != float64(0) {
 		t.Errorf("orient = %v", o)
 	}
 

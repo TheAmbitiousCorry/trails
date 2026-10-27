@@ -188,3 +188,31 @@ func TestDepthAndScent(t *testing.T) {
 		t.Errorf("depth 4: %v", err)
 	}
 }
+
+func TestLoneSummaryIsNoEdge(t *testing.T) {
+	db := open(t)
+	ctx := context.Background()
+	addSign(t, db, "fork", "root")
+	for i := 1; i <= 7; i++ {
+		addSign(t, db, fmt.Sprintf("f%d", i), "fork")
+	}
+	addEntry(t, db, "sum1", "fork", "summary", "first description")
+	if n, _ := signs.EdgeCount(ctx, db, "fork"); n != 7 {
+		t.Errorf("edges with a lone summary = %d, want 7", n)
+	}
+	if err := signs.CheckFanOut(ctx, db, "fork"); err == nil {
+		t.Error("eighth edge allowed beside a lone summary")
+	}
+	addEntry(t, db, "sum2", "fork", "summary", "second description")
+	if n, _ := signs.EdgeCount(ctx, db, "fork"); n != 8 {
+		t.Errorf("edges with two summaries = %d, want 8", n)
+	}
+	addSign(t, db, "small", "root")
+	addEntry(t, db, "only", "small", "summary", "alone")
+	if n, _ := signs.EdgeCount(ctx, db, "small"); n != 0 {
+		t.Errorf("sign holding only a summary has %d edges", n)
+	}
+	if err := signs.CheckFanOut(ctx, db, "small"); err != nil {
+		t.Error(err)
+	}
+}

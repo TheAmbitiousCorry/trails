@@ -35,31 +35,47 @@ func fanOutCap(ctx context.Context, db querier) (int, error) {
 	return n, nil
 }
 
-// unit is one edge for cap purposes: a child sign, or all of a sign's entries of one kind.
+// unit is one edge for cap purposes: a child sign, or all of a sign's entries of one kind. id is set for a child sign.
 type unit struct {
 	name    string
+	id      string
 	entries []*entryRow
-	// movable is set for a kind's entries held directly by the sign, the only edges write_sign can move.
-	movable bool
 }
 
 func (p *project) units(signID string) []unit {
+	return p.unitsOf(p.kids[signID], p.bySign[signID])
+}
+
+// unitsOf is the one definition of a sign's edges for the cap, shared by the cap check, the split proposal and write_sign. A lone summary entry is the sign's own description and is no edge; the summary kind counts from the second one.
+func (p *project) unitsOf(kids []string, entries []*entryRow) []unit {
 	var us []unit
-	for _, k := range p.kids[signID] {
-		us = append(us, unit{name: p.signs[k].Title, entries: p.subtree(k)})
+	for _, k := range kids {
+		us = append(us, unit{name: p.signs[k].Title, id: k, entries: p.subtree(k)})
 	}
 	byKind := map[string][]*entryRow{}
 	var kinds []string
-	for _, e := range p.bySign[signID] {
+	for _, e := range entries {
 		if _, ok := byKind[e.Kind]; !ok {
 			kinds = append(kinds, e.Kind)
 		}
 		byKind[e.Kind] = append(byKind[e.Kind], e)
 	}
 	for _, k := range kinds {
-		us = append(us, unit{name: k + " entries", entries: byKind[k], movable: true})
+		if k == "summary" && len(byKind[k]) < 2 {
+			continue
+		}
+		us = append(us, unit{name: k + " entries", entries: byKind[k]})
 	}
 	return us
+}
+
+// EdgeCount is the number of edges signID holds for the cap, by the same rule the cap check applies.
+func EdgeCount(ctx context.Context, db *sql.DB, signID string) (int, error) {
+	p, err := load(ctx, db)
+	if err != nil {
+		return 0, err
+	}
+	return len(p.units(signID)), nil
 }
 
 // CheckFanOut refuses when one more edge under signID would exceed the cap.
@@ -79,12 +95,12 @@ func CheckFanOut(ctx context.Context, db *sql.DB, signID string) error {
 	return &trail.Refusal{Rule: "split this fork", Fix: p.proposeSplit(us, limit, "this sign already has")}
 }
 
-const splitAction = "create a sign for a group with write_sign and pass its entry ids in move"
+const splitAction = "create a sign for a group with write_sign and pass their ids in move"
 
-// describe names a group member and, for a kind held directly by the sign, its entry ids.
+// describe names a group member and the ids to pass in move: the sign's own id, or the ids of the entries of its kind.
 func (u unit) describe() string {
-	if !u.movable {
-		return u.name
+	if u.id != "" {
+		return u.name + ": " + u.id
 	}
 	ids := make([]string, len(u.entries))
 	for i, e := range u.entries {
@@ -93,7 +109,7 @@ func (u unit) describe() string {
 	return u.name + ": " + strings.Join(ids, ", ")
 }
 
-// proposeSplit assigns each edge to the most common tag among its siblings and names the groups of two or more, with the ids of the entries in each. subject opens the sentence that states the count.
+// proposeSplit assigns each edge to the most common tag among its siblings and names the groups of two or more, with the ids to move in each. subject opens the sentence that states the count.
 func (p *project) proposeSplit(us []unit, limit int, subject string) string {
 	freq := map[string]int{}
 	for _, u := range us {
