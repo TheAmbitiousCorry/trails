@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -126,7 +127,7 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 // maxDuplicateCandidates bounds the self-score lookups: only the best raw matches can be near-identical.
 const maxDuplicateCandidates = 3
 
-// duplicate is rule 4. It searches title, read_when and the first paragraph, then divides each top hit's bm25 by that hit's score against its own text,
+// duplicate is rule 4. It compares only entries of the request's kind, so a decision never collides with its own summary. It searches title, read_when and the first paragraph, then divides each top hit's bm25 by that hit's score against its own text,
 // so the threshold is a fraction of a perfect match and does not move with the length of the entry.
 func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	q := search.DuplicateQuery(w.req.Title, w.req.ReadWhen, content.PlainText(w.body))
@@ -143,7 +144,7 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	seen := 0
 	for i := range hits {
 		h := &hits[i]
-		if w.prev != nil && h.EntryID == w.prev.id {
+		if (w.prev != nil && h.EntryID == w.prev.id) || h.Kind != w.req.Kind {
 			continue
 		}
 		if seen++; seen > maxDuplicateCandidates {
@@ -176,7 +177,7 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	switch w.req.Resolution {
 	case "":
 		return refusal("duplicate", "%s (%q) already covers this (%.0f%% match). Write again with resolution merge (add your read_when as an alias on it), replace (supersede it) or distinct with a distinct_reason (keep both)",
-			hit.EntryID, hit.Title, w.scores.Duplicate*100), nil
+			hit.EntryID, hit.Title, math.Min(w.scores.Duplicate, 1)*100), nil
 	case "merge":
 		if w.prev != nil {
 			return refusal("duplicate", "merge folds a new entry into %s; this write updates %s, so use replace or distinct", hit.EntryID, w.prev.id), nil

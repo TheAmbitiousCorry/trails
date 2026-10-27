@@ -61,6 +61,25 @@ func TestDuplicateNamesThreeOptions(t *testing.T) {
 	}
 }
 
+func TestDuplicateComparesOnlySameKind(t *testing.T) {
+	st, c := open(t)
+	fillers(t, st, c)
+	ex := decision("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing totals.")
+	ex.Kind = "summary"
+	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ex.Anchors = []anchor.Anchor{{Type: "file", PathOrURL: "a.txt"}}
+	mustWrite(t, st, c, ex)
+
+	mustWrite(t, st, c, decision("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing totals."))
+	if res := writeRaw(t, st, c, decision("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing totals.")); res.Refusal == nil || res.Refusal.Rule != "duplicate" {
+		t.Fatalf("decision against decision = %+v", res)
+	} else if strings.Contains(res.Refusal.Fix, "(1") && !strings.Contains(res.Refusal.Fix, "(100% match)") {
+		t.Errorf("reported match is above 100: %s", res.Refusal.Fix)
+	}
+}
+
 func TestMergeAddsSearchableAlias(t *testing.T) {
 	st, c := open(t)
 	fillers(t, st, c)
