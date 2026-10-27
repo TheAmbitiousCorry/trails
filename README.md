@@ -22,6 +22,15 @@ cd server && go run ./cmd/trails --repo /path/to/your/project
 
 The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Commit the id file; the database stays on your machine.
 
+With the server running, open its pages from a terminal:
+
+```bash
+trails open trail    # the latest session; also: map (default), graph
+trails status        # project, entry count, open gaps
+```
+
+`serve` is the default subcommand, so the command above is the same as `trails serve --repo /path/to/your/project`.
+
 To run the tests:
 
 ```bash

@@ -41,12 +41,31 @@ func sweepLoop(ctx context.Context, st *store.Store) {
 }
 
 func main() {
+	args := os.Args[1:]
+	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
+		cmd := args[0]
+		args = args[1:]
+		switch cmd {
+		case "serve":
+		case "open":
+			os.Exit(runOpen(args, os.Stdout, os.Stderr))
+		case "status":
+			os.Exit(runStatus(args, os.Stdout, os.Stderr))
+		default:
+			fmt.Fprintf(os.Stderr, "trails: unknown command %q, want serve, open or status\n", cmd)
+			os.Exit(2)
+		}
+	}
+	serve(args)
+}
+
+func serve(args []string) {
 	cwd, _ := os.Getwd()
 	userHome, _ := os.UserHomeDir()
 	repo := flag.String("repo", cwd, "repository to serve")
-	addr := flag.String("addr", "127.0.0.1:7777", "listen address")
+	addr := flag.String("addr", defaultAddr, "listen address")
 	home := flag.String("home", filepath.Join(userHome, ".trail"), "Trail home")
-	flag.Parse()
+	flag.CommandLine.Parse(args)
 
 	if err := run(*repo, *addr, *home); err != nil {
 		log.Fatal(err)
