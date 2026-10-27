@@ -62,7 +62,7 @@ const open = (id: string) => {
     <span class="lg"><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="6" class="lg-verified" /></svg>verified entry</span>
     <span class="lg"><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="6" class="lg-provisional" /></svg>provisional</span>
     <span class="lg"><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="6" class="lg-stale" /></svg>stale</span>
-    <span class="lg muted">entry size is reads in 30 days; hover a node to see its typed links<template v-if="layout === 'cluster'">; hover an entry to read its title</template></span>
+    <span class="lg muted">entry size is reads in 30 days<template v-if="layout !== 'cluster'">; a dashed ring is a group of entries, click it to open its sign</template>; hover a node to light its typed links</span>
   </p>
   <Load :ready="ready" :loading="loading" :error="error">
     <div class="graph-map">
@@ -78,5 +78,6 @@ const open = (id: string) => {
 .lg-verified { fill: var(--verified); }
 .lg-provisional { fill: var(--provisional); }
 .lg-stale { fill: var(--stale); }
-.graph-map { height: 70vh; min-height: 24rem; }
+/* Tall enough that a fitted map keeps labels readable; the page scrolls to it. */
+.graph-map { height: max(70vh, 52rem); }
 </style>

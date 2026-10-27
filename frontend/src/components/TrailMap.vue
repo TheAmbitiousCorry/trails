@@ -7,7 +7,7 @@ import 'd3-transition'
 import type { GraphEdge, GraphNode } from '../api'
 import { useGraph } from '../graph'
 import { place, subtree, type LayoutKind, type Placed, type Placement } from '../mapLayout'
-import { buildTree } from '../mapmodel'
+import { buildTree, foldGroups } from '../mapmodel'
 
 /** `target` empty or off the map draws nothing; `label` is the badge text, the hop's position when omitted. */
 export interface ReplayHop { target: string; prerequisites?: string[]; label?: number }
@@ -31,6 +31,8 @@ const emit = defineEmits<{ open: [id: string] }>()
 const HOP_MS = 650
 const FIT_PAD = 24
 const GRID_STEP = 80
+// Fitting never magnifies, so a small subtree keeps the label size of a large one.
+const FIT_MAX = 1
 
 const shared = useGraph()
 const nodes = computed(() => props.data?.nodes ?? shared.nodes.value)
@@ -38,7 +40,9 @@ const edges = computed(() => props.data?.edges ?? shared.edges.value)
 const typedEdges = computed(() => edges.value.filter((e) => e.relation !== 'home'))
 const placement = computed<Placement | null>(() => {
   const whole = buildTree(nodes.value, edges.value)
-  return whole ? place(props.layout, subtree(whole, props.root ?? ''), typedEdges.value) : null
+  if (!whole) return null
+  const sub = subtree(whole, props.root ?? '')
+  return place(props.layout, props.layout === 'cluster' ? sub : foldGroups(sub))
 })
 
 const host = ref<HTMLDivElement>()
@@ -64,12 +68,18 @@ function draw() {
   canvas.selectAll('*').remove()
   replayLayer = canvas.append('g').attr('class', 'tm-replay')
   if (!pl) return
-  const lit = new Set(props.highlight ?? [])
+  // A highlighted entry that is folded into a group lights the group.
+  const lit = new Set((props.highlight ?? []).map((id) => pl.byId.get(id)?.id ?? id))
   const dimmed = lit.size > 0
   const topo = pl.kind === 'topo'
   const cluster = pl.kind === 'cluster'
   const links = pl.root.links()
-  const typed = typedEdges.value.filter((e) => pl.byId.has(e.from) && pl.byId.has(e.to))
+  const at = (id: string) => pl.byId.get(id)!
+  const typed = typedEdges.value
+    .filter((e) => pl.byId.has(e.from) && pl.byId.has(e.to))
+    .map((e) => ({ a: at(e.from), b: at(e.to) }))
+    .filter((l) => l.a !== l.b)
+  const road = (l: { source: { data: { id: string } }; target: { data: { id: string } } }) => pl.link(at(l.source.data.id), at(l.target.data.id))
 
   const back = canvas.insert('g', '.tm-replay').attr('class', 'tm-back')
   if (topo) {
@@ -78,54 +88,79 @@ function draw() {
       grid.append('line').attr('x1', v).attr('x2', v).attr('y1', -pl.grid).attr('y2', pl.grid)
       grid.append('line').attr('y1', v).attr('y2', v).attr('x1', -pl.grid).attr('x2', pl.grid)
     }
-  }
-  if (cluster) {
-    back.append('g').attr('class', 'tm-hulls').selectAll('path').data(pl.hulls).join('path')
-      .attr('d', (h) => `M${h.points.map((q) => q.join(',')).join('L')}Z`).attr('fill', (h) => trailVar(h.trail)).attr('stroke', (h) => trailVar(h.trail))
-    back.append('g').attr('class', 'tm-shortcuts').selectAll('path').data(typed).join('path')
-      .attr('fill', 'none').attr('d', (e) => pl.shortcut(pl.byId.get(e.from)!, pl.byId.get(e.to)!))
-  }
-  if (topo) {
+    back.append('g').attr('class', 'tm-rings').selectAll('circle').data(pl.rings.slice(1)).join('circle').attr('r', (r) => r)
     back.append('g').attr('class', 'tm-casing').selectAll('path').data(links).join('path')
-      .attr('fill', 'none').attr('stroke-width', (l) => roadWidth(l) + 3).attr('d', (l) => pl.link(pl.byId.get(l.source.data.id)!, pl.byId.get(l.target.data.id)!))
+      .attr('fill', 'none').attr('stroke-width', (l) => roadWidth(l) + 3).attr('d', road)
     back.append('g').attr('class', 'tm-roads').selectAll('path').data(links).join('path')
       .attr('fill', 'none').attr('stroke-width', roadWidth)
-      .attr('stroke', (l) => (l.source.depth === 0 ? 'var(--bg)' : trailColour(pl.byId.get(l.target.data.id)!)))
-      .attr('d', (l) => pl.link(pl.byId.get(l.source.data.id)!, pl.byId.get(l.target.data.id)!))
+      .attr('stroke', (l) => (l.source.depth === 0 ? 'var(--bg)' : trailColour(at(l.target.data.id))))
+      .attr('d', road)
+  } else if (cluster) {
+    back.append('g').attr('class', 'tm-hulls').selectAll('path').data(pl.hulls.filter((h) => !h.peninsula)).join('path')
+      .attr('d', hullPath).attr('fill', (h) => trailVar(h.trail)).attr('stroke', (h) => trailVar(h.trail))
+    back.append('g').attr('class', 'tm-peninsulas').selectAll('path').data(pl.hulls.filter((h) => h.peninsula)).join('path')
+      .attr('d', hullPath).attr('fill', (h) => trailVar(h.trail)).attr('stroke', (h) => trailVar(h.trail))
+    back.append('g').attr('class', 'tm-typed').selectAll('path').data(typed).join('path')
+      .attr('fill', 'none').attr('d', (l) => pl.shortcut(l.a, l.b))
+    back.append('g').attr('class', 'tm-spokes').selectAll('path').data(links).join('path')
+      .attr('fill', 'none').attr('stroke-linecap', 'round')
+      .attr('stroke', (l) => (l.source.depth === 0 ? 'var(--line)' : trailColour(at(l.target.data.id))))
+      .attr('stroke-opacity', (l) => (l.source.depth === 0 ? 1 : 0.7)).attr('stroke-width', (l) => (l.source.depth === 0 ? 2 : 1.6))
+      .attr('d', road)
   } else {
     back.append('g').attr('class', 'tm-links').selectAll('path').data(links).join('path')
       .attr('fill', 'none')
-      .attr('stroke', (l) => trailColour(pl.byId.get(l.target.data.id)!))
-      .attr('d', (l) => pl.link(pl.byId.get(l.source.data.id)!, pl.byId.get(l.target.data.id)!))
+      .attr('stroke', (l) => trailColour(at(l.target.data.id)))
+      .attr('d', road)
   }
+  // Ridge and Topo draw a node's typed links only while it is hovered or focused; Cluster draws them all faint and lights the node's own.
   const hover = back.append('g').attr('class', 'tm-hover')
+  const typedLines = back.selectAll<SVGPathElement, (typeof typed)[number]>('.tm-typed path')
 
   const g = back.append('g').selectAll<SVGGElement, Placed>('g').data(pl.placed).join('g')
     .attr('class', (p) => `tm-node${lit.has(p.id) ? ' lit' : dimmed ? ' dim' : ''}`)
     .attr('transform', (p) => `translate(${p.x},${p.y})`)
     .attr('tabindex', 0).attr('role', 'link').attr('aria-label', (p) => `${p.node.data.type} ${p.node.data.title}`)
-    .on('click', (_, p) => { if (p.id !== 'root') emit('open', p.id) })
-    .on('keydown', (ev: KeyboardEvent, p) => { if (ev.key === 'Enter' && p.id !== 'root') emit('open', p.id) })
+    .on('click', (_, p) => open(p))
+    .on('keydown', (ev: KeyboardEvent, p) => { if (ev.key === 'Enter') open(p) })
     .on('mouseenter focus', (_, p) => {
-      const mine = typed.filter((e) => e.from === p.id || e.to === p.id)
-      hover.selectAll('path').data(mine).join('path').attr('fill', 'none').attr('d', (e) => pl.shortcut(pl.byId.get(e.from)!, pl.byId.get(e.to)!))
+      const mine = typed.filter((l) => l.a.id === p.id || l.b.id === p.id)
+      if (cluster) {
+        const own = new Set(mine)
+        typedLines.attr('stroke-opacity', (l) => (own.has(l) ? 0.9 : 0.06)).attr('stroke', (l) => (own.has(l) ? 'var(--accent)' : 'var(--mute)'))
+        return
+      }
+      hover.selectAll('path').data(mine).join('path').attr('fill', 'none').attr('d', (l) => pl.shortcut(l.a, l.b))
     })
-    .on('mouseleave blur', () => hover.selectAll('*').remove())
+    .on('mouseleave blur', () => {
+      hover.selectAll('*').remove()
+      typedLines.attr('stroke-opacity', null).attr('stroke', null)
+    })
   g.append('title').text((p) => p.node.data.title)
+  const sign = (p: Placed) => p.node.data.type === 'sign'
+  const entry = (p: Placed) => p.node.data.type === 'entry'
+  const trailhead = (p: Placed) => p.node === pl.root && p.id === 'root'
+  g.filter((p) => p.node.data.type === 'group').append('circle').attr('r', 9).attr('class', 'tm-group')
   if (topo) {
-    g.filter((p) => p.node.data.id === pl.root.data.id).append('circle').attr('r', 13).attr('class', 'tm-trailhead')
-    g.filter((p) => p.node.data.type === 'sign' && p.node.data.id !== pl.root.data.id).append('rect')
+    g.filter((p) => p.node === pl.root).append('circle').attr('r', 13).attr('class', 'tm-trailhead')
+    g.filter((p) => sign(p) && p.node !== pl.root).append('rect')
       .attr('x', -7).attr('y', -7).attr('width', 14).attr('height', 14).attr('rx', 3).attr('class', 'tm-road-sign').attr('stroke', trailColour)
-    g.filter((p) => p.node.data.type === 'entry').append('circle')
+    g.filter(entry).append('circle')
       .attr('r', (p) => 4.5 + Math.sqrt(p.node.data.reads)).attr('class', 'tm-road-entry').attr('stroke', (p) => tierColour(p.node.data.tier))
+  } else if (cluster) {
+    g.filter(trailhead).append('circle').attr('r', 12).attr('class', 'tm-trailhead')
+    g.filter((p) => sign(p) && !trailhead(p)).append('rect')
+      .attr('x', -8).attr('y', -8).attr('width', 16).attr('height', 16).attr('rx', 3).attr('fill', trailColour)
+    g.filter(entry).append('circle')
+      .attr('r', (p) => 4 + Math.sqrt(p.node.data.reads) * 1.6).attr('fill', (p) => tierColour(p.node.data.tier))
   } else {
-    g.filter((p) => p.node.data.type === 'sign').append('rect')
+    g.filter(sign).append('rect')
       .attr('x', -6).attr('y', -6).attr('width', 12).attr('height', 12).attr('rx', 2).attr('fill', trailColour)
-    g.filter((p) => p.node.data.type === 'entry').append('circle')
+    g.filter(entry).append('circle')
       .attr('r', nodeSize).attr('fill', (p) => tierColour(p.node.data.tier))
   }
   g.append('text')
-    .attr('class', (p) => `tm-label${p.node.data.type === 'sign' ? ' sign' : ''}${cluster && p.node.data.type === 'entry' ? ' hidden' : ''}`)
+    .attr('class', (p) => `tm-label${sign(p) ? ' sign' : ''}`)
     .text((p) => p.label)
     .each(function (p) {
       const t = select(this)
@@ -136,12 +171,20 @@ function draw() {
         t.attr('dy', '.32em').attr('x', flip ? -12 : 12).attr('text-anchor', flip ? 'end' : 'start').attr('transform', `rotate(${deg})`)
           .style('font-size', p.node.parent ? (internal ? '12.5px' : '11px') : '14px')
       } else if (cluster) {
-        t.attr('dy', '.35em').attr('x', p.node.data.type === 'sign' ? 12 : nodeSize(p) + 4)
+        t.attr('dy', internal ? '-1.1em' : '.32em').attr('x', internal ? 0 : 10).attr('text-anchor', internal ? 'middle' : 'start')
       } else {
-        t.attr('dy', internal ? '-0.9em' : '.32em').attr('x', internal ? 0 : 11 + (p.node.data.type === 'entry' ? nodeSize(p) - 4 : 0)).attr('text-anchor', internal ? 'middle' : 'start')
+        t.attr('dy', internal ? '-0.9em' : '.32em').attr('x', internal ? 0 : 11 + (entry(p) ? nodeSize(p) - 4 : 0)).attr('text-anchor', internal ? 'middle' : 'start')
       }
     })
 }
+
+/** A group opens its sign, which lists the folded entries. */
+function open(p: Placed) {
+  if (p.node.data.type === 'group') emit('open', p.node.data.signId ?? '')
+  else if (p.id !== 'root') emit('open', p.id)
+}
+
+const hullPath = (h: { points: [number, number][] }) => `M${h.points.map((q) => q.join(',')).join('L')}Z`
 
 function hopChain(pl: Placement, target: string): Placed[] {
   const p = pl.byId.get(target)
@@ -211,7 +254,7 @@ function fit() {
   const { width, height } = el.getBoundingClientRect()
   if (!width || !height) return
   const { x, y, w, h } = pl.box
-  const k = Math.min((width - 2 * FIT_PAD) / w, (height - 2 * FIT_PAD) / h, 1.5)
+  const k = Math.min((width - 2 * FIT_PAD) / w, (height - 2 * FIT_PAD) / h, FIT_MAX)
   svg.call(behaviour.transform, zoomIdentity.translate(width / 2 - (x + w / 2) * k, height / 2 - (y + h / 2) * k).scale(k))
   moved = false
 }
@@ -288,15 +331,16 @@ svg:active { cursor: grabbing; }
 :deep(.tm-trailhead) { fill: var(--fg); stroke: var(--s1); stroke-width: 3; }
 :deep(.tm-road-sign) { fill: var(--s1); stroke-width: 3; }
 :deep(.tm-road-entry) { fill: var(--s1); stroke-width: 2.5; }
-:deep(.tm-hulls path) { fill-opacity: 0.06; stroke-opacity: 0.18; stroke-width: 18; stroke-linejoin: round; }
-:deep(.tm-shortcuts path) { stroke: var(--mute); stroke-opacity: 0.25; stroke-width: 1; }
+:deep(.tm-rings circle) { fill: none; stroke: var(--mute); stroke-opacity: 0.6; stroke-width: 1.5; stroke-dasharray: 1 7; stroke-linecap: round; }
+:deep(.tm-hulls path) { fill-opacity: 0.07; stroke-opacity: 0.2; stroke-width: 24; stroke-linejoin: round; }
+:deep(.tm-peninsulas path) { fill-opacity: 0.1; stroke-opacity: 0.35; stroke-width: 10; stroke-linejoin: round; }
+:deep(.tm-typed path) { stroke: var(--mute); stroke-opacity: 0.25; stroke-width: 1; }
+:deep(.tm-group) { fill: var(--s2); stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 3 2; }
 :deep(.tm-hover path) { stroke: var(--accent); stroke-width: 1.8; stroke-opacity: 0.9; }
 :deep(.tm-links path) { stroke-width: 2.4; stroke-opacity: 0.8; }
-:deep(.tm-label.hidden) { opacity: 0; }
-:deep(.tm-node:hover .tm-label.hidden), :deep(.tm-node:focus .tm-label.hidden) { opacity: 1; }
 :deep(.tm-node:focus-visible) { outline: none; }
 :deep(.tm-node) { cursor: pointer; }
-:deep(.tm-node circle:not(.tm-road-entry):not(.tm-trailhead)), :deep(.tm-node rect:not(.tm-road-sign)) { stroke: var(--s1); stroke-width: 1.5; }
+:deep(.tm-node circle:not(.tm-road-entry):not(.tm-trailhead):not(.tm-group)), :deep(.tm-node rect:not(.tm-road-sign)) { stroke: var(--s1); stroke-width: 1.5; }
 :deep(.tm-node.dim) { opacity: 0.45; }
 :deep(.tm-node.lit circle), :deep(.tm-node.lit rect) { stroke: var(--fg); stroke-width: 2.5; }
 :deep(.tm-label) {

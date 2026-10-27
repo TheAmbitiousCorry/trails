@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 
 const require = createRequire(process.cwd() + '/package.json')
 const { chromium } = require('playwright')
+const { polygonContains } = await import(require.resolve('d3-polygon'))
 
 const addr = process.env.ADDR || '127.0.0.1:7777'
 const out = process.env.OUT || '.proof'
@@ -51,31 +52,58 @@ const shots = [
 
 // Returns the first pair of visible labels whose boxes intersect, or null.
 // Opacity is the product up the tree so dimmed nodes are skipped; boxes are the getBBox rectangle mapped through the screen matrix, because a rotated Topo label's axis-aligned getBoundingClientRect covers its neighbours.
+// The map is measured at its own scale: Chrome rounds the font metrics of SVG text under a strong zoom-out, which inflates boxes on a phone-sized view, so the zoom is lifted for the measurement and put back.
 const overlappingLabels = () => {
-  const seen = []
-  for (const t of document.querySelectorAll('svg text')) {
-    let opacity = 1
-    for (let el = t; el && el !== document.body; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity)
-    const b = t.getBBox()
-    const m = t.getScreenCTM()
-    if (opacity <= 0.5 || !t.textContent.trim() || !b.width || !b.height || !m) continue
-    const quad = [[b.x, b.y], [b.x + b.width, b.y], [b.x + b.width, b.y + b.height], [b.x, b.y + b.height]]
-      .map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f])
-    seen.push({ text: t.textContent.trim(), quad })
+  const canvas = document.querySelector('.trailmap svg > g')
+  const zoomed = canvas?.getAttribute('transform')
+  canvas?.setAttribute('transform', 'translate(0 0) scale(1)')
+  const overlapAtScale = () => {
+    const seen = []
+    for (const t of document.querySelectorAll('svg text')) {
+      let opacity = 1
+      for (let el = t; el && el !== document.body; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity)
+      const b = t.getBBox()
+      const m = t.getScreenCTM()
+      if (opacity <= 0.5 || !t.textContent.trim() || !b.width || !b.height || !m) continue
+      const quad = [[b.x, b.y], [b.x + b.width, b.y], [b.x + b.width, b.y + b.height], [b.x, b.y + b.height]]
+        .map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f])
+      seen.push({ text: t.textContent.trim(), quad })
+    }
+    const slack = 1
+    const axes = (q) => [0, 1].map((i) => { const dx = q[i + 1][0] - q[i][0], dy = q[i + 1][1] - q[i][1], len = Math.hypot(dx, dy); return [-dy / len, dx / len] })
+    const span = (q, [ax, ay]) => { const d = q.map(([x, y]) => x * ax + y * ay); return [Math.min(...d), Math.max(...d)] }
+    const hit = (p, q) => [...axes(p), ...axes(q)].every((axis) => {
+      const [a0, a1] = span(p, axis), [b0, b1] = span(q, axis)
+      return a0 + slack < b1 && b0 + slack < a1
+    })
+    for (let i = 0; i < seen.length; i++) {
+      for (let j = i + 1; j < seen.length; j++) {
+        if (hit(seen[i].quad, seen[j].quad)) return [seen[i].text, seen[j].text]
+      }
+    }
+    return null
   }
-  const slack = 1
-  const axes = (q) => [0, 1].map((i) => { const dx = q[i + 1][0] - q[i][0], dy = q[i + 1][1] - q[i][1], len = Math.hypot(dx, dy); return [-dy / len, dx / len] })
-  const span = (q, [ax, ay]) => { const d = q.map(([x, y]) => x * ax + y * ay); return [Math.min(...d), Math.max(...d)] }
-  const hit = (p, q) => [...axes(p), ...axes(q)].every((axis) => {
-    const [a0, a1] = span(p, axis), [b0, b1] = span(q, axis)
-    return a0 + slack < b1 && b0 + slack < a1
+  try {
+    return overlapAtScale()
+  } finally {
+    if (zoomed) canvas.setAttribute('transform', zoomed)
+  }
+}
+
+// Cluster: island hulls must not touch and the trailhead must sit in none. Each hull's outline (its vertices and points along each edge) is tested against every other hull.
+const clusterProblem = (hulls, head) => {
+  const outline = (h) => h.flatMap((a, i) => {
+    const b = h[(i + 1) % h.length]
+    return Array.from({ length: 12 }, (_, k) => [a[0] + ((b[0] - a[0]) * k) / 12, a[1] + ((b[1] - a[1]) * k) / 12])
   })
-  for (let i = 0; i < seen.length; i++) {
-    for (let j = i + 1; j < seen.length; j++) {
-      if (hit(seen[i].quad, seen[j].quad)) return [seen[i].text, seen[j].text]
+  for (let i = 0; i < hulls.length; i++) {
+    for (let j = 0; j < hulls.length; j++) {
+      if (i !== j && outline(hulls[i]).some((q) => polygonContains(hulls[j], q))) return `island hulls ${i} and ${j} intersect`
     }
   }
-  return null
+  if (!head) return 'no trailhead on the Cluster map'
+  const covered = hulls.findIndex((h) => polygonContains(h, head))
+  return covered >= 0 ? `the trailhead sits inside island hull ${covered}` : null
 }
 
 const problems = []
@@ -101,6 +129,16 @@ for (const width of widths) {
         }
         const pair = await page.evaluate(overlappingLabels)
         if (pair) problems.push(`${tag}: labels overlap: "${pair[0]}" and "${pair[1]}"`)
+        if (mode === 'cluster') {
+          // polygonContains is d3-polygon's; the page cannot import it, so the hull points come out and the test runs here.
+          const hulls = await page.evaluate(() => [...document.querySelectorAll('.tm-hulls path')].map((el) => el.getAttribute('d').slice(1, -1).split('L').map((q) => q.split(',').map(Number))))
+          const head = await page.evaluate(() => {
+            const m = document.querySelector('.tm-trailhead')?.parentElement?.getAttribute('transform')?.match(/translate\(([^,]+),([^)]+)\)/)
+            return m ? [Number(m[1]), Number(m[2])] : null
+          })
+          const hit = clusterProblem(hulls, head)
+          if (hit) problems.push(`${tag}: ${hit}`)
+        }
       }
       if (mode === 'form' || mode === 'refusal') {
         const title = page.locator('#new-sign-title')
