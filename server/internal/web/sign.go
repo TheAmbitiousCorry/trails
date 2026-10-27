@@ -32,7 +32,7 @@ type kindGroup struct {
 	Entries []signEntry `json:"entries"`
 }
 
-var kindOrder = map[string]int{"summary": 0, "decision": 1, "example": 2, "reference": 3, "render": 4}
+var kindOrder = map[string]int{"summary": 0, "decision": 1, "procedure": 2, "example": 3, "reference": 4, "render": 5}
 
 func (a *api) sign(r *http.Request) (any, error) {
 	ctx, db := r.Context(), a.st.DB

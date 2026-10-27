@@ -290,3 +290,28 @@ func TestCreateWithoutRequiredFieldsIsRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestProcedureNeedsAnAnchor(t *testing.T) {
+	st, c := open(t)
+	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := entries.WriteRequest{Actor: "s-1", ParentSignID: "root", Kind: "procedure", Title: "Run the build", ReadWhen: "you need to run the build",
+		BodyMarkdown: "1. Run make build."}
+	res, err := entries.Write(context.Background(), st.DB, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Refusal == nil || res.Refusal.Rule != "anchor" {
+		t.Fatalf("refusal = %+v, want anchor", res.Refusal)
+	}
+	req.Anchors = []anchor.Anchor{{Type: "file", PathOrURL: "a.txt"}}
+	ok := mustWrite(t, st, c, req)
+	var kind string
+	if err := st.DB.QueryRow(`SELECT kind FROM entries WHERE id = ?`, ok.EntryID).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "procedure" {
+		t.Errorf("kind = %q, want procedure", kind)
+	}
+}

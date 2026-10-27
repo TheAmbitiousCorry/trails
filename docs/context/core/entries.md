@@ -41,6 +41,7 @@ A `read` also lists the entry's backlinks, every entry that links to it by any r
 |---|---|---|---|
 | `summary` | What a module or domain owns, why it exists, what it must not do | 300 words | At least one file, directory or commit anchor. The one exception is the project's root summary, which the server seeds on first open as `verified` with `decided_by: seed` and no anchor |
 | `decision` | Who decided, when, why, what was rejected | 200 words | No anchor needed; `decided_by` and `decided_at` required |
+| `procedure` | Steps to do one recurring task: build, run, test, release, restore, add a resource. Numbered steps, each one command or one edit | 400 words | At least one file, dir or commit anchor naming what the steps touch |
 | `example` | A code snippet with one sentence of context | 40 words of prose; the browser renders the snippet live from the anchor range | Exactly one range anchor |
 | `render` | A screenshot, story URL or diagram, described in the body | 60 words | Exactly one `produced_by` anchor naming the producing command or URL; the server records the repository HEAD at write time |
 | `reference` | A pointer to a long external document | 100 words | Exactly one URL or transcript anchor |

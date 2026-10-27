@@ -259,7 +259,7 @@ input_schema: {
       "type": "string"
     },
     "kind": {
-      "description": "summary, decision, example, render or reference",
+      "description": "summary, decision, procedure, example, render or reference",
       "type": "string"
     },
     "parent_sign_id": {

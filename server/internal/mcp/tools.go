@@ -202,7 +202,7 @@ func (a anchorIn) toAnchor() anchor.Anchor {
 type writeIn struct {
 	SessionID      string     `json:"session_id" jsonschema:"the id session_start returned"`
 	ParentSignID   string     `json:"parent_sign_id,omitempty" jsonschema:"the sign the entry hangs under; required to create"`
-	Kind           string     `json:"kind,omitempty" jsonschema:"summary, decision, example, render or reference"`
+	Kind           string     `json:"kind,omitempty" jsonschema:"summary, decision, procedure, example, render or reference"`
 	Title          string     `json:"title,omitempty" jsonschema:"80 characters max; required to create; kept when omitted on an update"`
 	ReadWhen       string     `json:"read_when,omitempty" jsonschema:"one line, 200 characters max: the need this entry answers; required to create; kept when omitted on an update"`
 	Body           string     `json:"body,omitempty" jsonschema:"Markdown; required to create; kept when omitted on an update"`

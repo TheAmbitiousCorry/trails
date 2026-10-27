@@ -21,7 +21,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
-var defaultCaps = map[string]int{"summary": 300, "decision": 200, "example": 40, "render": 60, "reference": 100}
+var defaultCaps = map[string]int{"summary": 300, "decision": 200, "procedure": 400, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
 var RefusalRules = []string{"schema:kind", "schema:title", "schema:read_when", "schema:body", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
@@ -34,7 +34,7 @@ func refusal(rule, format string, args ...any) *trail.Refusal {
 func schema(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	r := w.req
 	if _, ok := defaultCaps[r.Kind]; !ok {
-		return refusal("schema:kind", "kind %q is not one of summary, decision, example, render, reference", r.Kind), nil
+		return refusal("schema:kind", "kind %q is not one of summary, decision, procedure, example, render, reference", r.Kind), nil
 	}
 	if r.Title == "" || utf8.RuneCountInString(r.Title) > maxTitle || strings.ContainsAny(r.Title, "\r\n") {
 		return refusal("schema:title", "title is one line of 1 to %d characters", maxTitle), nil
@@ -99,6 +99,10 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	case "decision":
 		if r.DecidedBy == "" || r.DecidedAt == "" {
 			return refusal("anchor", "a decision needs decided_by and decided_at"), nil
+		}
+	case "procedure":
+		if types["file"]+types["dir"]+types["commit"] == 0 {
+			return refusal("anchor", "a procedure needs at least one file, dir or commit anchor naming what its steps touch"), nil
 		}
 	case "example":
 		if len(as) != 1 || types["range"] != 1 {
