@@ -6,7 +6,7 @@ input=$(cat)
 trails_init "$input"
 id=$(trails_session_id "$input")
 [ -n "$id" ] || exit 0
-reply=$(jq -cn --arg s "$id" '{runtime_session_id: $s}' | post stop-check) || exit 0
+reply=$(jq -cn --arg s "$id" '{runtime_session_id: $s}' | post_hook stop-check) || exit 0
 n=$(printf '%s' "$reply" | jq -r 'select(.open == true) | (.gaps // []) | length' 2>/dev/null)
 [ -n "$n" ] || exit 0
 edits=$(printf '%s' "$reply" | jq -r '[(.edits // [])[] | "\(.id) (\(.path))"] | join(", ")' 2>/dev/null)

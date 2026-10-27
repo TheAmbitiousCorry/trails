@@ -12,7 +12,7 @@ else
   body=$(printf '%s' "$input" | jq -c --arg s "$id" '{runtime_session_id: $s, path: ((.tool_input.file_path // .tool_input.path // .tool_response.file.filePath) // "" | tostring)}' 2>/dev/null) || exit 0
 fi
 [ "$(printf '%s' "$body" | jq -r .path)" != "" ] || exit 0
-reply=$(printf '%s' "$body" | post off-trail) || exit 0
+reply=$(printf '%s' "$body" | post_hook off-trail) || exit 0
 line=$(printf '%s' "$reply" | jq -r 'select(.entry_id) | "Trails has an entry for this file: \(.entry_id), \(.read_when)"' 2>/dev/null)
 [ -n "$line" ] || exit 0
 emit_context PostToolUse "$line"

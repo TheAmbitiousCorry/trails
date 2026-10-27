@@ -25,12 +25,14 @@ func main() {
 		args = args[1:]
 		switch cmd {
 		case "serve":
+		case "register":
+			os.Exit(runRegister(args, os.Stdout, os.Stderr))
 		case "open":
 			os.Exit(runOpen(args, os.Stdout, os.Stderr))
 		case "status":
 			os.Exit(runStatus(args, os.Stdout, os.Stderr))
 		default:
-			fmt.Fprintf(os.Stderr, "trails: unknown command %q, want serve, open or status\n", cmd)
+			fmt.Fprintf(os.Stderr, "trails: unknown command %q, want serve, register, open or status\n", cmd)
 			os.Exit(2)
 		}
 	}
@@ -44,22 +46,13 @@ func (r *repoFlags) String() string     { return strings.Join(*r, ",") }
 func (r *repoFlags) Set(v string) error { *r = append(*r, v); return nil }
 
 func serve(args []string) {
-	cwd, _ := os.Getwd()
 	userHome, _ := os.UserHomeDir()
 	var repos repoFlags
-	flag.Var(&repos, "repo", "repository to serve; repeatable, the working directory when none is given")
-	addrFlag := flag.String("addr", defaultAddr, "listen address (default from the first repo's .trail/port)")
+	flag.Var(&repos, "repo", "repository to serve, its .trail/id created when absent; repeatable")
+	addr := flag.String("addr", defaultAddr(), "listen address (default $TRAILS_ADDR, else "+fallbackAddr+")")
 	home := flag.String("home", filepath.Join(userHome, ".trail"), "Trail home")
 	flag.CommandLine.Parse(args)
-	if len(repos) == 0 {
-		repos = repoFlags{cwd}
-	}
-
-	addr, err := pickAddr(flag.CommandLine, *addrFlag, repos[0])
-	if err != nil {
-		log.Fatalf("trails: %v", err)
-	}
-	if err := run(repos, addr, *home); err != nil {
+	if err := run(repos, *addr, *home); err != nil {
 		log.Fatal(err)
 	}
 }

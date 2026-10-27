@@ -12,6 +12,15 @@ post() {
   curl -sf --connect-timeout 1 --max-time 3 -H 'Content-Type: application/json' --data-binary @- "$TRAILS_URL/api/$1"
 }
 
+# post_hook ROUTE is post with the repo's project id added to the body, so the server needs no search across projects.
+post_hook() {
+  if [ -n "$TRAILS_PROJECT" ]; then
+    jq -c --arg p "$TRAILS_PROJECT" '. + {project: $p}' 2>/dev/null | post "$1"
+  else
+    post "$1"
+  fi
+}
+
 # emit_context EVENT TEXT prints TEXT in the runtime's injection form. TRAILS_EVENT overrides EVENT in the hook-json form.
 emit_context() {
   case "${TRAILS_CONTEXT_FORMAT:-plain}" in
@@ -30,23 +39,19 @@ trails_session_id() {
   printf '%s' "$1" | field_of "${TRAILS_SESSION_FIELD:-session_id}"
 }
 
-# trails_init JSON sets TRAILS_REPO and, when TRAILS_URL is unset, TRAILS_URL from <repo>/.trail/port (7777 when the file is absent or not a port).
-# The repo is CLAUDE_PROJECT_DIR when set, else the payload's cwd, else the working directory. Every script calls this right after reading stdin.
+# trails_init JSON sets TRAILS_REPO, TRAILS_ROOT, TRAILS_PROJECT and, when TRAILS_URL is unset, TRAILS_URL from TRAILS_ADDR (default 127.0.0.1:7777).
+# The repo is CLAUDE_PROJECT_DIR when set, else the payload's cwd, else the working directory. TRAILS_ROOT is the nearest directory at or above it that holds .trail/id
+# (empty when none does) and TRAILS_PROJECT is the id in that file. Every script calls this right after reading stdin.
 trails_init() {
   TRAILS_REPO=${CLAUDE_PROJECT_DIR:-}
   [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$(printf '%s' "$1" | field_of cwd)
   [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$PWD
-  TRAILS_FILE_PORT=$(trails_file_port "$TRAILS_REPO")
-  TRAILS_URL=${TRAILS_URL:-http://127.0.0.1:${TRAILS_FILE_PORT:-7777}}
-}
-
-# trails_file_port REPO prints the port in REPO/.trail/port, or nothing when the file is absent or not a number from 1 to 65535.
-trails_file_port() {
-  [ -f "$1/.trail/port" ] || return 0
-  p=$(tr -d ' \t\r\n' < "$1/.trail/port" 2>/dev/null) || return 0
-  case "$p" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-  [ "$p" -ge 1 ] 2>/dev/null && [ "$p" -le 65535 ] 2>/dev/null && printf '%s' "$p"
-  return 0
+  TRAILS_URL=${TRAILS_URL:-http://${TRAILS_ADDR:-127.0.0.1:7777}}
+  TRAILS_ROOT=$TRAILS_REPO
+  while [ ! -f "$TRAILS_ROOT/.trail/id" ]; do
+    [ "$TRAILS_ROOT" != / ] && [ "$TRAILS_ROOT" != . ] || { TRAILS_ROOT=; break; }
+    TRAILS_ROOT=$(dirname "$TRAILS_ROOT")
+  done
+  TRAILS_PROJECT=
+  [ -z "$TRAILS_ROOT" ] || TRAILS_PROJECT=$(tr -d ' \t\r\n' < "$TRAILS_ROOT/.trail/id" 2>/dev/null) || TRAILS_PROJECT=
 }

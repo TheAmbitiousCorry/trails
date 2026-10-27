@@ -94,6 +94,16 @@ func TestSoleAndRuntimeLookup(t *testing.T) {
 	if err != nil || !ok || p != pb || sid != "s-b" {
 		t.Errorf("ByRuntime = %v %q %v %v, want the later session in bbb", p, sid, ok, err)
 	}
+	// The project that answered stays the answer while its session is open, and the search resumes when it closes.
+	if p, _, _, _ := reg.ByRuntime(ctx, "rt-1"); p != pb {
+		t.Error("cached runtime id lost its project")
+	}
+	if _, err := pb.DB().Exec(`UPDATE sessions SET ended_at = '2099-01-01' WHERE id = 's-b'`); err != nil {
+		t.Fatal(err)
+	}
+	if p, sid, ok, _ := reg.ByRuntime(ctx, "rt-1"); !ok || p != pa || sid != "s-a" {
+		t.Errorf("after s-b closed ByRuntime = %v %q %v, want s-a in aaa", p, sid, ok)
+	}
 	if _, _, ok, _ := reg.ByRuntime(ctx, "rt-none"); ok {
 		t.Error("ByRuntime found an unknown runtime id")
 	}

@@ -35,13 +35,14 @@ type Registry struct {
 	mu       sync.Mutex
 	byID     map[string]*Project
 	sessions map[string]string
+	runtimes map[string]string
 }
 
 // NewRegistry opens nothing. A zero sweepEvery runs no sweeps, which tests use to keep the clock still.
 func NewRegistry(home string, sweepEvery time.Duration) *Registry {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Registry{home: home, sweepEvery: sweepEvery, ctx: ctx, cancel: cancel,
-		byID: map[string]*Project{}, sessions: map[string]string{}}
+		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string]string{}}
 }
 
 // Open registers the project in repo, which must hold .trail/id, and returns it.
@@ -199,25 +200,35 @@ func (r *Registry) BySession(ctx context.Context, id string) (*Project, bool, er
 	return nil, false, nil
 }
 
-// ByRuntime finds the open session an agent runtime's own session id maps to, the most recently started across all projects.
+// ByRuntime finds the open session an agent runtime's own session id maps to.
+// The project that last answered for the id is asked first and wins while it still holds an open session for it; otherwise every project is asked and the most recently started session wins.
 func (r *Registry) ByRuntime(ctx context.Context, runtimeID string) (*Project, string, bool, error) {
 	if runtimeID == "" {
 		return nil, "", false, nil
 	}
+	r.mu.Lock()
+	cached, ok := r.byID[r.runtimes[runtimeID]]
+	r.mu.Unlock()
+	if ok {
+		if sid, _, found, err := cached.OpenSession(ctx, runtimeID); err != nil || found {
+			return cached, sid, found, err
+		}
+	}
 	var best *Project
 	var bestID, bestAt string
 	for _, p := range r.List() {
-		var sid, at string
-		err := p.DB().QueryRowContext(ctx, `SELECT id, started_at FROM sessions WHERE runtime_session_id = ? AND ended_at IS NULL ORDER BY started_at DESC, rowid DESC LIMIT 1`, runtimeID).Scan(&sid, &at)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
+		sid, at, found, err := p.OpenSession(ctx, runtimeID)
 		if err != nil {
 			return nil, "", false, err
 		}
-		if best == nil || at > bestAt {
+		if found && (best == nil || at > bestAt) {
 			best, bestID, bestAt = p, sid, at
 		}
+	}
+	if best != nil {
+		r.mu.Lock()
+		r.runtimes[runtimeID] = best.ID
+		r.mu.Unlock()
 	}
 	return best, bestID, best != nil, nil
 }

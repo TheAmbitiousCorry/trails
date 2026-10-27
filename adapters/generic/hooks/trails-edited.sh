@@ -12,7 +12,7 @@ else
   body=$(printf '%s' "$input" | jq -c --arg s "$id" '{runtime_session_id: $s, path: (.tool_input.file_path // .tool_input.notebook_path // "" | tostring)}' 2>/dev/null) || exit 0
 fi
 [ "$(printf '%s' "$body" | jq -r .path)" != "" ] || exit 0
-reply=$(printf '%s' "$body" | post edited) || exit 0
+reply=$(printf '%s' "$body" | post_hook edited) || exit 0
 line=$(printf '%s' "$reply" | jq -r 'select((.entries // []) | length > 0) | "Trails has \(.entries | length) entries anchored to this file; update or confirm each before ending the session: \([.entries[] | "\(.entry_id) (\(.read_when))"] | join(", "))"' 2>/dev/null)
 [ -n "$line" ] || exit 0
 emit_context PostToolUse "$line"

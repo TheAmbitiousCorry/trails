@@ -114,16 +114,11 @@ func TestOneServerKeepsProjectsApart(t *testing.T) {
 		t.Errorf("unknown_session logged %d events", after-before)
 	}
 
-	// The hook routes act on a sole project only.
-	resp, err := http.Post("http://"+addr+"/api/stop-check", "application/json", strings.NewReader(`{"runtime_session_id":"x"}`))
-	if err != nil {
-		t.Fatal(err)
+	// The hook routes no longer need a sole project: an unmatched runtime id is a quiet pass.
+	if got := postAPI(t, addr, "/api/stop-check", map[string]any{"runtime_session_id": "x"}); got["open"] != false {
+		t.Errorf("stop-check with two projects and no match = %v", got)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusConflict {
-		t.Errorf("stop-check with two projects: status %d", resp.StatusCode)
-	}
-	resp, err = http.Get("http://" + addr + "/api/map")
+	resp, err := http.Get("http://" + addr + "/api/map")
 	if err != nil {
 		t.Fatal(err)
 	}

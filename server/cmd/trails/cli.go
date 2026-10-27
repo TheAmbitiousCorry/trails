@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,46 +13,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
-const defaultAddr = "127.0.0.1:7777"
+const fallbackAddr = "127.0.0.1:7777"
 
-// repoAddr is the address of a repo's server: 127.0.0.1 on the port in <repo>/.trail/port, else defaultAddr.
-func repoAddr(repo string) (string, error) {
-	file := filepath.Join(repo, ".trail", "port")
-	raw, err := os.ReadFile(file)
-	if errors.Is(err, os.ErrNotExist) {
-		return defaultAddr, nil
+// defaultAddr is the server address when --addr is not given: $TRAILS_ADDR, else fallbackAddr.
+func defaultAddr() string {
+	if a := os.Getenv("TRAILS_ADDR"); a != "" {
+		return a
 	}
-	if err != nil {
-		return "", fmt.Errorf("%s: %v", file, err)
-	}
-	text := strings.TrimSpace(string(raw))
-	n, err := strconv.Atoi(text)
-	if err != nil || n < 1 || n > 65535 {
-		return "", fmt.Errorf("%s: want one port number from 1 to 65535, got %q", file, text)
-	}
-	return "127.0.0.1:" + strconv.Itoa(n), nil
-}
-
-// pickAddr returns the explicit --addr when one was given, else the address from the repo's port file.
-func pickAddr(fs *flag.FlagSet, addr, repo string) (string, error) {
-	given := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "addr" {
-			given = true
-		}
-	})
-	if given {
-		return addr, nil
-	}
-	if repo == "" {
-		repo, _ = os.Getwd()
-	}
-	return repoAddr(repo)
+	return fallbackAddr
 }
 
 var errNoServer = errors.New("no server")
@@ -96,8 +71,7 @@ func getJSON(addr, path string, out any) error {
 }
 
 func noServer(stderr io.Writer, addr string) int {
-	cwd, _ := os.Getwd()
-	fmt.Fprintf(stderr, "no Trails server at %s; start it with: trails serve --repo %s\n", addr, cwd)
+	fmt.Fprintf(stderr, "no Trails server at %s; start it with: trails serve\n", addr)
 	return 1
 }
 
@@ -110,16 +84,10 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	target, rest := splitTarget(args)
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addrFlag := fs.String("addr", defaultAddr, "server address (default from .trail/port)")
-	repo := fs.String("repo", "", "repository whose .trail/port names the address (default the working directory)")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
-	resolved, err := pickAddr(fs, *addrFlag, *repo)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	addr := &resolved
 	if target == "" && fs.NArg() > 0 {
 		target = fs.Arg(0)
 	}
@@ -178,16 +146,10 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addrFlag := fs.String("addr", defaultAddr, "server address (default from .trail/port)")
-	repo := fs.String("repo", "", "repository whose .trail/port names the address (default the working directory)")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	resolved, err := pickAddr(fs, *addrFlag, *repo)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	addr := &resolved
 	var m struct {
 		Project struct {
 			Title string `json:"title"`
@@ -204,5 +166,43 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	fmt.Fprintf(stdout, "%s: %d entries, %d open gaps\n", m.Project.Title, m.Root.Entries, m.Root.OpenGaps)
+	return 0
+}
+
+// runRegister creates .trail/id in the repo when it has none, then asks the server to open the project.
+func runRegister(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("register", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	repo := fs.String("repo", "", "repository to register (default the working directory)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *repo == "" {
+		*repo, _ = os.Getwd()
+	}
+	abs, err := filepath.Abs(*repo)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if _, err := store.EnsureID(abs); err != nil {
+		return fail(stderr, err)
+	}
+	body, _ := json.Marshal(map[string]string{"repo": abs})
+	c := http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Post("http://"+*addr+"/api/projects", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return noServer(stderr, *addr)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
+		return fail(stderr, fmt.Errorf("register %s: %s %s", abs, resp.Status, strings.TrimSpace(string(msg))))
+	}
+	var ref struct{ ID, Title string }
+	if err := json.NewDecoder(resp.Body).Decode(&ref); err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "registered %s (%s) at %s\n", ref.Title, ref.ID, *addr)
 	return 0
 }

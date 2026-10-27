@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -18,14 +19,80 @@ import (
 // forceAfter is the stop-check call that closes a session the agent never ended.
 const forceAfter = 3
 
-// registerAPI mounts the hook endpoints; they are plain JSON so a shell script with curl can call them.
+// registerAPI mounts the project and hook endpoints; they are plain JSON so a shell script with curl can call them.
 func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
-	mux.Handle("/api/off-trail", guard(addr, postJSON(reg, offTrail)))
-	mux.Handle("/api/edited", guard(addr, postJSON(reg, edited)))
-	mux.Handle("/api/stop-check", guard(addr, postJSON(reg, stopCheck)))
+	mux.Handle("GET /api/projects", guard(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out := []projectRef{}
+		for _, p := range reg.List() {
+			ref, err := refOf(r.Context(), p)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			out = append(out, ref)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"projects": out})
+	})))
+	mux.Handle("POST /api/projects", guard(addr, registerProject(reg)))
+	mux.Handle("/api/off-trail", guard(addr, hookJSON(reg, struct{}{}, offTrail)))
+	mux.Handle("/api/edited", guard(addr, hookJSON(reg, editedReply{Entries: []signpost{}}, edited)))
+	mux.Handle("/api/stop-check", guard(addr, hookJSON(reg, map[string]bool{"open": false}, stopCheck)))
 }
 
-func postJSON(reg *project.Registry, h func(context.Context, *project.Project, map[string]any) (any, error)) http.Handler {
+type projectRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+func refOf(ctx context.Context, p *project.Project) (projectRef, error) {
+	t, err := p.Title(ctx)
+	return projectRef{p.ID, t}, err
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+
+// registerProject opens the repo named in the body and replies its id and title.
+// It never writes into the repo: any local process can reach the port, so only a repo that already holds .trail/id is accepted.
+func registerProject(reg *project.Registry) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in); err != nil {
+			http.Error(w, "body must be a JSON object", http.StatusBadRequest)
+			return
+		}
+		repo := str(in, "repo")
+		if !filepath.IsAbs(repo) {
+			http.Error(w, "repo must be an absolute path", http.StatusBadRequest)
+			return
+		}
+		if fi, err := os.Stat(repo); err != nil || !fi.IsDir() {
+			http.Error(w, "repo is not a directory", http.StatusBadRequest)
+			return
+		}
+		p, err := reg.Open(repo)
+		if errors.Is(err, store.ErrNoID) {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "not_opted_in", "fix": "run `trails register` in the repo to create .trail/id and register it"})
+			return
+		}
+		var ref projectRef
+		if err == nil {
+			ref, err = refOf(r.Context(), p)
+		}
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, ref)
+	})
+}
+
+// hookJSON serves a hook endpoint. The body's project names the project and its runtime_session_id is looked up there; without project the registry looks across all projects.
+// An unmatched session gets the empty reply, which is what a hook that never fails a turn expects; an unknown project is a 404.
+func hookJSON(reg *project.Registry, empty any, h func(context.Context, *project.Project, string, map[string]any) (any, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -36,22 +103,29 @@ func postJSON(reg *project.Registry, h func(context.Context, *project.Project, m
 			http.Error(w, "body must be a JSON object", http.StatusBadRequest)
 			return
 		}
-		p, err := reg.Sole()
-		if err != nil {
-			code := http.StatusConflict
-			if errors.Is(err, project.ErrNone) {
-				code = http.StatusNotFound
+		var p *project.Project
+		var sid string
+		var found bool
+		var err error
+		if id := str(in, "project"); id != "" {
+			var ok bool
+			if p, ok = reg.ByID(id); !ok {
+				http.Error(w, "project_unknown", http.StatusNotFound)
+				return
 			}
-			http.Error(w, err.Error(), code)
-			return
+			sid, _, found, err = p.OpenSession(r.Context(), str(in, "runtime_session_id"))
+		} else {
+			p, sid, found, err = reg.ByRuntime(r.Context(), str(in, "runtime_session_id"))
 		}
-		out, err := h(r.Context(), p, in)
+		var out any = empty
+		if err == nil && found {
+			out, err = h(r.Context(), p, sid, in)
+		}
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	})
 }
 
@@ -60,29 +134,15 @@ func str(in map[string]any, key string) string {
 	return strings.TrimSpace(s)
 }
 
-// openSession finds the most recent open session for a runtime's own session id.
-func openSession(ctx context.Context, db *sql.DB, runtimeID string) (string, bool, error) {
-	if runtimeID == "" {
-		return "", false, nil
-	}
-	var id string
-	err := db.QueryRowContext(ctx, `SELECT id FROM sessions WHERE runtime_session_id = ? AND ended_at IS NULL ORDER BY started_at DESC, rowid DESC LIMIT 1`, runtimeID).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	return id, err == nil, err
-}
-
 type signpost struct {
 	EntryID  string `json:"entry_id"`
 	ReadWhen string `json:"read_when"`
 }
 
-func offTrail(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
-	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
+func offTrail(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
 	p := str(in, "path")
-	if err != nil || !ok || p == "" {
-		return struct{}{}, err
+	if p == "" {
+		return struct{}{}, nil
 	}
 	rel := repoRelative(st.Repo(), p)
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'off_trail', ?, 'ok')`, sid, store.Now(), rel); err != nil {
@@ -100,12 +160,11 @@ type editedReply struct {
 }
 
 // edited records an edit event and replies with every live entry whose file, range or dir anchor covers the path.
-func edited(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
+func edited(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
 	reply := editedReply{Entries: []signpost{}}
-	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
 	p := str(in, "path")
-	if err != nil || !ok || p == "" {
-		return reply, err
+	if p == "" {
+		return reply, nil
 	}
 	rel := repoRelative(st.Repo(), p)
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
@@ -191,13 +250,9 @@ type editRef struct {
 	Path string `json:"path"`
 }
 
-func stopCheck(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
-	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
-	if err != nil || !ok {
-		return map[string]bool{"open": false}, err
-	}
+func stopCheck(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
 	var blocks int
-	err = st.DB().QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks`, sid).Scan(&blocks)
+	err := st.DB().QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks`, sid).Scan(&blocks)
 	if err != nil {
 		return nil, err
 	}

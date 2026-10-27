@@ -39,7 +39,7 @@ cd server && go test ./...
 
 ## Connect an agent
 
-Trails listens on 127.0.0.1:7777 by default. To use another port in one repo, commit it in `.trail/port` (one number); the CLI and the hooks read it, and the MCP entry below must name the same port.
+One server per machine holds every project that has opted in, and each agent session works inside its own project. It listens on 127.0.0.1:7777 by default; set `TRAILS_ADDR` or pass `--addr` to change that, and make the MCP entry below name the same port. A repo opts in with `trails register` (it creates `.trail/id` and tells the running server), or by the first `trails serve --repo`.
 
 Pick your runtime under `adapters/` and follow its README: paste the protocol section into the project's instructions file and add the MCP entry. For Claude Code that is:
 
@@ -57,8 +57,8 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--repo` | current directory | The project the database describes |
-| `--addr` | `127.0.0.1:` plus the port in `<repo>/.trail/port`, else `127.0.0.1:7777` | Listening address. Requests whose Host or Origin differ are refused. `open` and `status` take the same flag and default |
+| `--repo` | none | A project to open at start, repeatable; its `.trail/id` is created when absent. Projects the server has served before reopen on their own, and others join through `trails register` |
+| `--addr` | `$TRAILS_ADDR`, else `127.0.0.1:7777` | Listening address. Requests whose Host or Origin differ are refused. `register`, `open` and `status` take the same flag and default |
 | `--home` | `~/.trail` | Where databases and media live |
 
 ## Status
@@ -78,4 +78,4 @@ claude plugin marketplace add TheAmbitiousCorry/trails
 claude plugin install trails@trails
 ```
 
-The plugin carries the walking protocol skill, the `/trail` command, the three hooks and the MCP server entry on 127.0.0.1:7777 (the default port). A repo that needs another port commits it in `.trail/port` and sets `TRAILS_PORT` to the same number in the `env` block of its `.claude/settings.json`, which the plugin's MCP entry reads; the session-start hook prints the line to add when the two disagree. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the server for any repo with a committed `.trail/id`.
+The plugin carries the walking protocol skill, the `/trail` command, the three hooks and the MCP server entry on 127.0.0.1:7777 (the default port). A machine that needs another port sets `TRAILS_ADDR` and, once, `TRAILS_PORT` to the same number in the `env` block of `~/.claude/settings.json`, which the plugin's MCP entry reads; the session-start hook prints the line to add when the two disagree. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the one server if none runs and registers any repo with a committed `.trail/id`.
