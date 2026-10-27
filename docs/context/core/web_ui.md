@@ -17,7 +17,7 @@ One server holds many projects and each browser page belongs to one. The page pa
 
 Every project page is a left sidebar beside an article column; the project list is the article column alone. The sidebar holds the brand (the project's title, linking to the project list), a search box, the tree and the page links (Map, Graph, Sessions, Gaps, Provisional, Tags, Rejections). Below 900 px the sidebar is hidden behind a Menu toggle at the top of the page; the toggle stays visible and opens the sidebar as an overlay.
 
-- **Tree.** Every sign with its entries nested, fetched once per project from `/api/p/<id>/graph` and fetched again when the browser moves to another project. Signs are collapsed by default. Opening a sign or entry page opens its ancestors and marks the page as current. Each entry carries a tier dot.
+- **Tree.** Every sign with its entries nested, fetched once per project from `/api/p/<id>/graph` and fetched again when the browser moves to another project. Signs are collapsed by default. Opening a sign or entry page opens its ancestors and marks the page as current.
 - **Search.** Typing filters the tree to titles containing the text and opens the matching branches. From three characters the box also calls `/api/p/<id>/search` and lists up to eight hits above the tree, each with its tier and sign path, linking to the entry. Escape clears the box.
 
 ## Pages

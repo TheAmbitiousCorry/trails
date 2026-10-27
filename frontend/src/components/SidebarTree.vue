@@ -78,7 +78,6 @@ const expandable = (s: TreeSign) => s.signs.length > 0 || s.entries.length > 0
       <ul v-if="open.has(s.id) && expandable(s)" class="side-tree">
         <SidebarTree v-if="s.signs.length" :signs="s.signs" :current="current" :open="open" :locked="locked" />
         <li v-for="e in s.entries" :key="e.id" class="side-row side-entry">
-          <span class="disc small-disc" :class="`bg-${e.tier}`" :title="e.tier"></span>
           <RouterLink class="side-title" :to="{ name: 'entry', params: { id: e.id } }" :aria-current="current === e.id ? 'page' : undefined">{{ e.title }}</RouterLink>
         </li>
       </ul>
