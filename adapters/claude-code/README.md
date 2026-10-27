@@ -1,7 +1,6 @@
 # claude-code adapter
 
-The repo is itself a Claude Code plugin: `.claude-plugin/plugin.json`, `skills/trails` and `skills/trail`, `hooks/hooks.json` and `.mcp.json` at the root. Install it from a marketplace that lists it (`claude plugin marketplace add TheAmbitiousCorry/trails
-claude plugin install trails@trails`) and skip the steps below. Manual wiring:
+The repo is itself a Claude Code plugin: `.claude-plugin/plugin.json`, `skills/trails` and `skills/trail`, `hooks/hooks.json` and `.mcp.json` at the root. The repo is also its own marketplace: run `claude plugin marketplace add TheAmbitiousCorry/trails` then `claude plugin install trails@trails` and skip the steps below. Manual wiring:
 
 1. Copy `skills/trails/` and `skills/trail/` from the repo root to `.claude/skills/` in the project; the second gives the `/trail` command.
 2. Register the MCP server. .mcp.json:
