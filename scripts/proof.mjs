@@ -21,7 +21,7 @@ const getJSON = async (path) => {
   return r.json()
 }
 
-// PROJECT names the project whose pages are captured; the project list is captured whatever it is.
+// PROJECT names the project whose pages are captured; the project select is captured whatever it is.
 const project = process.env.PROJECT || (await getJSON('/api/projects')).projects[0]?.id
 if (!project) throw new Error('the server at ' + addr + ' holds no project')
 const api = `/api/p/${encodeURIComponent(project)}`
@@ -42,7 +42,6 @@ const conflict = graph.edges.filter((e) => e.relation === 'conflicts_with')
 const busiest = sessions.reduce((a, b) => (total(b) > total(a) ? b : a), sessions[0])
 
 const shots = [
-  ['projects', '/'],
   ['map', at('/')],
   ['graph-ridge', at('/graph'), 'ridge'],
   ['graph-topo', at('/graph'), 'topo'],
@@ -62,6 +61,7 @@ const shots = [
   ['provisional', at('/provisional')],
   ['tags', at('/tags')],
   ['logs', at('/logs')],
+  ['project-select', at('/'), 'select'],
   ['menu', at('/'), 'menu'],
 ].filter(Boolean)
 
@@ -195,6 +195,12 @@ for (const width of widths) {
         const button = page.getByRole('button', { name: /^Supersede / })
         if ((await button.count()) !== 1) problems.push(`${tag}: expected one Supersede button, found ${await button.count()}`)
         else await button.scrollIntoViewIfNeeded()
+      }
+      if (mode === 'select') {
+        if (width <= 700) { await page.getByRole('button', { name: 'Menu' }).click(); await page.waitForTimeout(300) }
+        const select = page.getByRole('combobox', { name: 'Project' })
+        if ((await select.locator('option').count()) < 1) problems.push(`${tag}: the project select lists no project`)
+        await select.focus()
       }
       if (mode === 'menu') {
         await page.getByRole('button', { name: 'Menu' }).click()

@@ -2,7 +2,7 @@ import { ref, watchEffect, type Ref } from 'vue'
 
 export interface ProjectRow { id: string; title: string; entries: number; open_sessions: number; open_gaps: number }
 
-/** The project id in the page's URL, empty on the project list; the router sets it before a page mounts. */
+/** The project id in the page's URL, empty on the root; the router sets it before a page mounts. */
 export const projectId = ref('')
 
 /** A data route of the current project, `path` starting with a slash. */

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { projectId } from './api'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getJSON, projectId, type ProjectRow } from './api'
 import { useGraph } from './graph'
 import SidebarSearch from './components/SidebarSearch.vue'
 import SidebarTree from './components/SidebarTree.vue'
@@ -15,7 +15,16 @@ const links = [
   { name: 'tags', label: 'Tags' },
   { name: 'logs', label: 'Rejections' },
 ]
-const { title } = useGraph()
+useGraph()
+
+const projects = ref<ProjectRow[]>([])
+const router = useRouter()
+onMounted(async () => {
+  try { projects.value = (await getJSON<{ projects: ProjectRow[] }>('/api/projects')).projects } catch { projects.value = [] }
+})
+function choose(e: Event) {
+  router.push({ name: 'map', params: { project: (e.target as HTMLSelectElement).value } })
+}
 
 const open = ref(false)
 const query = ref('')
@@ -28,7 +37,11 @@ watch(() => route.fullPath, () => { open.value = false })
     <button v-if="projectId" type="button" class="menu-toggle" aria-controls="sidebar" :aria-expanded="open" @click="open = !open">Menu</button>
     <button v-if="open" type="button" class="scrim open" aria-label="Close menu" tabindex="-1" @click="open = false"></button>
     <aside v-if="projectId" id="sidebar" :key="projectId" class="sidebar" :class="{ open }" @keydown.esc="open = false">
-      <RouterLink :to="{ name: 'projects' }" class="brand">{{ title || 'Trails' }}</RouterLink>
+      <div class="brand">
+        <select class="project-select" aria-label="Project" @change="choose">
+          <option v-for="p in projects" :key="p.id" :value="p.id" :selected="p.id === projectId">{{ p.title }}</option>
+        </select>
+      </div>
       <SidebarSearch v-model="query">
         <nav class="side-tree-nav" aria-label="Wiki">
           <h2 v-if="query.trim()" class="side-head">In the tree</h2>
