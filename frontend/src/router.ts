@@ -8,6 +8,7 @@ import GapsPage from './pages/GapsPage.vue'
 import ProvisionalPage from './pages/ProvisionalPage.vue'
 import TagsPage from './pages/TagsPage.vue'
 import LogsPage from './pages/LogsPage.vue'
+import GraphPage from './pages/GraphPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -15,6 +16,7 @@ export const router = createRouter({
     { path: '/', name: 'map', component: MapPage },
     { path: '/signs/:id', name: 'sign', component: SignPage },
     { path: '/entries/:id', name: 'entry', component: EntryPage },
+    { path: '/graph', name: 'graph', component: GraphPage },
     { path: '/sessions', name: 'sessions', component: SessionsPage },
     { path: '/sessions/:id', name: 'session', component: SessionPage },
     { path: '/gaps', name: 'gaps', component: GapsPage },
