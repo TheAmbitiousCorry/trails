@@ -51,6 +51,7 @@ const shots = [
   busiest && ['session-replay-mid', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-mid'],
   busiest && ['session-replay-end', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-end'],
   busiest && ['session-replay-keys', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-keys'],
+  sign && ['sign', at(`/signs/${encodeURIComponent(sign.id)}`)],
   sign && ['sign-form', at(`/signs/${encodeURIComponent(sign.id)}`), 'form'],
   sign && ['sign-refusal', at(`/signs/${encodeURIComponent(sign.id)}`), 'refusal'],
   entry && ['entry', at(`/entries/${encodeURIComponent(entry.id)}`)],

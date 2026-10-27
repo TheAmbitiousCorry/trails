@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError, postJSON, useApi, type Edge, type SignResponse, projectApi } from '../api'
+import { ApiError, postJSON, useApi, type SignResponse, projectApi } from '../api'
 import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
-import Markdown from '../components/Markdown.vue'
-import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
+import { tip } from '../tips'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +19,11 @@ watch(() => route.params.id, () => { newTitle.value = ''; createError.value = nu
 
 const childSigns = computed(() => (data.value?.view.edges ?? []).filter((e) => e.type === 'sign' && e.id))
 const directEntries = computed(() => (data.value?.groups ?? []).flatMap((g) => g.entries))
+const tierCounts = computed(() => {
+  const out: Record<string, number> = {}
+  for (const e of directEntries.value) out[e.tier] = (out[e.tier] ?? 0) + 1
+  return out
+})
 
 // The server's refusal body is "rule: fix".
 function refusal(e: unknown) {
@@ -44,13 +48,6 @@ async function createSign() {
     creating.value = false
   }
 }
-
-function edgeCounts(e: Edge): string {
-  if (e.type === 'sign') return `${e.child_count ?? 0} below${e.stale_count ? `, ${e.stale_count} stale` : ''}`
-  if (e.type === 'entry') return `${e.kind}, ${e.word_count ?? 0} words`
-  if (e.type === 'group') return `${e.member_count} entries`
-  return ''
-}
 </script>
 
 <template>
@@ -67,54 +64,38 @@ function edgeCounts(e: Edge): string {
       <p class="lede">{{ data.view.summary }}</p>
       <p><RouterLink :to="{ name: 'graph', query: { focus: data.view.sign_id, depth: '1' } }">Show on graph</RouterLink></p>
       <p class="badges">
-        <span v-if="data.stale" class="chip chip-stale">{{ data.stale }} stale below</span>
-        <span v-if="data.open_gaps" class="chip chip-gap">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
+        <span class="chip" v-bind="tip('documents')">{{ directEntries.length }} {{ directEntries.length === 1 ? 'document' : 'documents' }}</span>
+        <span class="chip" v-bind="tip('sections')">{{ childSigns.length }} {{ childSigns.length === 1 ? 'section' : 'sections' }}</span>
+        <span v-if="tierCounts.verified" class="chip chip-verified" v-bind="tip('verified')">{{ tierCounts.verified }} verified</span>
+        <span v-if="tierCounts.provisional" class="chip chip-provisional" v-bind="tip('provisional')">{{ tierCounts.provisional }} provisional</span>
+        <span v-if="data.stale" class="chip chip-stale" v-bind="tip('stale')">{{ data.stale }} stale</span>
+        <span v-if="data.open_gaps" class="chip chip-gap" v-bind="tip('gaps')">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
       </p>
 
-      <section aria-labelledby="edges">
-        <h2 id="edges">Edges, as an agent sees them</h2>
-        <p v-if="!data.view.edges.length" class="muted">This sign has no edges yet.</p>
-        <ul class="edges">
-          <li v-for="(e, i) in data.view.edges" :key="e.id ?? i" class="edge">
-            <div class="edge-head">
-              <RouterLink v-if="e.type === 'sign'" :to="{ name: 'sign', params: { id: e.id! } }">{{ e.title }}</RouterLink>
-              <RouterLink v-else-if="e.type === 'entry'" :to="{ name: 'entry', params: { id: e.id! } }">{{ e.title }}</RouterLink>
-              <a v-else-if="e.type === 'group'" :href="`#kind-${e.kind}`">{{ e.title }}</a>
-              <span v-else>{{ e.title }}</span>
-              <span class="chip chip-kind">{{ e.type }}</span>
-              <TierBadge v-if="e.tier" :tier="e.tier" />
-              <span class="muted small">{{ edgeCounts(e) }}</span>
-            </div>
-            <p v-if="e.read_when" class="read-when">{{ e.read_when }}</p>
-            <p v-if="e.scent?.length" class="chips"><span v-for="s in e.scent" :key="s" class="chip">{{ s }}</span></p>
+      <section v-if="childSigns.length" aria-labelledby="sections">
+        <h2 id="sections" class="section-label">Sections</h2>
+        <ul class="rows">
+          <li v-for="c in childSigns" :key="c.id" class="row-item">
+            <span class="row-mark"><span class="sq" aria-hidden="true"></span></span>
+            <RouterLink class="row-title" :to="{ name: 'sign', params: { id: c.id! } }">{{ c.title }}</RouterLink>
+            <span v-if="c.read_when" class="row-line">{{ c.read_when }}</span>
           </li>
         </ul>
-        <p class="muted small">{{ data.view.lines }} lines in the agent's response.</p>
       </section>
 
-      <section v-for="g in data.groups" :id="`kind-${g.kind}`" :key="g.kind" :aria-labelledby="`h-${g.kind}`">
-        <h2 :id="`h-${g.kind}`">{{ g.kind }} <span class="muted small">{{ g.entries.length }}</span></h2>
-        <article v-for="e in g.entries" :key="e.id" class="card">
-          <header class="card-head">
-            <h3><RouterLink :to="{ name: 'entry', params: { id: e.id } }">{{ e.title }}</RouterLink></h3>
-            <TierBadge :tier="e.tier" />
-            <span v-if="e.chain_length" class="chip chip-kind" :title="`Reading this serves ${e.chain_length} prerequisite ${e.chain_length === 1 ? 'entry' : 'entries'} first`">chain +{{ e.chain_length }}</span>
-          </header>
-          <p class="read-when">{{ e.read_when }}</p>
-          <p v-if="e.tags.length" class="chips"><span v-for="t in e.tags" :key="t" class="chip">{{ t }}</span></p>
-          <p v-if="e.body_problem" class="notice error">{{ e.body_problem }}</p>
-          <Markdown v-else :source="e.body_markdown" />
-          <template v-if="g.kind === 'example'">
-            <SnippetBlock v-for="a in e.anchors.filter((x) => x.type === 'range' || x.type === 'file')" :key="a.id" :entry-id="e.id" :anchor-id="a.id" />
-          </template>
-          <ul v-if="e.anchors.length" class="anchors">
-            <li v-for="a in e.anchors" :key="a.id" :class="{ failed: !a.ok }">
-              <span class="chip chip-kind">{{ a.type }}</span>
-              <code>{{ a.path_or_url }}<template v-if="a.type === 'range'">:{{ a.range_start }}-{{ a.range_end }}</template></code>
-              <span v-if="!a.ok" class="chip chip-stale">failed</span>
-            </li>
-          </ul>
-        </article>
+      <section aria-labelledby="documents">
+        <h2 id="documents" class="section-label">Documents</h2>
+        <p v-if="!directEntries.length" class="muted">No documents yet.</p>
+        <ul v-else class="rows">
+          <li v-for="e in directEntries" :key="e.id" class="row-item">
+            <span class="row-mark"><TierBadge :tier="e.tier" dot-only /></span>
+            <span class="row-head">
+              <RouterLink class="row-title" :to="{ name: 'entry', params: { id: e.id } }">{{ e.title }}</RouterLink>
+              <span class="row-kind" v-bind="tip(e.kind)">{{ e.kind }}</span>
+            </span>
+            <span class="row-line"><span class="rw-label" v-bind="tip('readwhen')">read when</span> {{ e.read_when }}</span>
+          </li>
+        </ul>
       </section>
 
       <section aria-labelledby="add-sign">

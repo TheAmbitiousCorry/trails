@@ -7,6 +7,7 @@ import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
 import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
+import { tip } from '../tips'
 
 const route = useRoute()
 const { data, error, loading, reload } = useApi<EntryResponse>(() => projectApi(`/entries/${encodeURIComponent(String(route.params.id))}`))
@@ -54,7 +55,7 @@ async function supersede(r: { original: string; by: string }) {
       <h1>{{ data.entry.title }}</h1>
       <p class="badges">
         <TierBadge :tier="data.entry.tier" />
-        <span class="chip chip-kind">{{ data.entry.kind }}</span>
+        <span class="chip chip-kind" v-bind="tip(data.entry.kind)">{{ data.entry.kind }}</span>
         <span v-if="data.entry.chain_length" class="chip chip-kind">chain +{{ data.entry.chain_length }}</span>
         <span class="muted small">{{ data.entry.reads_30d }} reads in 30 days, updated {{ when(data.entry.updated_at) }}</span>
       </p>
