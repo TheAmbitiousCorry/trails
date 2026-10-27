@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
@@ -18,13 +19,13 @@ import (
 const forceAfter = 3
 
 // registerAPI mounts the hook endpoints; they are plain JSON so a shell script with curl can call them.
-func registerAPI(mux *http.ServeMux, st *store.Store, addr string) {
-	mux.Handle("/api/off-trail", guard(addr, postJSON(st, offTrail)))
-	mux.Handle("/api/edited", guard(addr, postJSON(st, edited)))
-	mux.Handle("/api/stop-check", guard(addr, postJSON(st, stopCheck)))
+func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
+	mux.Handle("/api/off-trail", guard(addr, postJSON(reg, offTrail)))
+	mux.Handle("/api/edited", guard(addr, postJSON(reg, edited)))
+	mux.Handle("/api/stop-check", guard(addr, postJSON(reg, stopCheck)))
 }
 
-func postJSON(st *store.Store, h func(context.Context, *store.Store, map[string]any) (any, error)) http.Handler {
+func postJSON(reg *project.Registry, h func(context.Context, *project.Project, map[string]any) (any, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -35,7 +36,16 @@ func postJSON(st *store.Store, h func(context.Context, *store.Store, map[string]
 			http.Error(w, "body must be a JSON object", http.StatusBadRequest)
 			return
 		}
-		out, err := h(r.Context(), st, in)
+		p, err := reg.Sole()
+		if err != nil {
+			code := http.StatusConflict
+			if errors.Is(err, project.ErrNone) {
+				code = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), code)
+			return
+		}
+		out, err := h(r.Context(), p, in)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -68,17 +78,17 @@ type signpost struct {
 	ReadWhen string `json:"read_when"`
 }
 
-func offTrail(ctx context.Context, st *store.Store, in map[string]any) (any, error) {
-	sid, ok, err := openSession(ctx, st.DB, str(in, "runtime_session_id"))
+func offTrail(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
+	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
 	p := str(in, "path")
 	if err != nil || !ok || p == "" {
 		return struct{}{}, err
 	}
-	rel := repoRelative(st.Repo, p)
-	if _, err := st.DB.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'off_trail', ?, 'ok')`, sid, store.Now(), rel); err != nil {
+	rel := repoRelative(st.Repo(), p)
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'off_trail', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
-	sp, found, err := anchoredEntry(ctx, st.DB, rel)
+	sp, found, err := anchoredEntry(ctx, st.DB(), rel)
 	if err != nil || !found {
 		return struct{}{}, err
 	}
@@ -90,18 +100,18 @@ type editedReply struct {
 }
 
 // edited records an edit event and replies with every live entry whose file, range or dir anchor covers the path.
-func edited(ctx context.Context, st *store.Store, in map[string]any) (any, error) {
+func edited(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
 	reply := editedReply{Entries: []signpost{}}
-	sid, ok, err := openSession(ctx, st.DB, str(in, "runtime_session_id"))
+	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
 	p := str(in, "path")
 	if err != nil || !ok || p == "" {
 		return reply, err
 	}
-	rel := repoRelative(st.Repo, p)
-	if _, err := st.DB.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
+	rel := repoRelative(st.Repo(), p)
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
-	rows, err := st.DB.QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
+	rows, err := st.DB().QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
 		FROM anchors a JOIN entries e ON e.id = a.entry_id
 		WHERE a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
 		ORDER BY e.created_at, e.id`)
@@ -181,23 +191,23 @@ type editRef struct {
 	Path string `json:"path"`
 }
 
-func stopCheck(ctx context.Context, st *store.Store, in map[string]any) (any, error) {
-	sid, ok, err := openSession(ctx, st.DB, str(in, "runtime_session_id"))
+func stopCheck(ctx context.Context, st *project.Project, in map[string]any) (any, error) {
+	sid, ok, err := openSession(ctx, st.DB(), str(in, "runtime_session_id"))
 	if err != nil || !ok {
 		return map[string]bool{"open": false}, err
 	}
 	var blocks int
-	err = st.DB.QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks`, sid).Scan(&blocks)
+	err = st.DB().QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks`, sid).Scan(&blocks)
 	if err != nil {
 		return nil, err
 	}
 	if blocks >= forceAfter {
-		if _, err := st.DB.ExecContext(ctx, `UPDATE sessions SET ended_at = ?, ended_by = 'forced' WHERE id = ? AND ended_at IS NULL`, store.Now(), sid); err != nil {
+		if _, err := st.DB().ExecContext(ctx, `UPDATE sessions SET ended_at = ?, ended_by = 'forced' WHERE id = ? AND ended_at IS NULL`, store.Now(), sid); err != nil {
 			return nil, err
 		}
 		return stopReply{Blocks: blocks, Forced: true, Gaps: []gapRef{}, Edits: []editRef{}}, nil
 	}
-	rows, err := st.DB.QueryContext(ctx, `SELECT id, COALESCE(query, paths_json, '') FROM gaps WHERE session_id = ? AND state = 'open' ORDER BY id`, sid)
+	rows, err := st.DB().QueryContext(ctx, `SELECT id, COALESCE(query, paths_json, '') FROM gaps WHERE session_id = ? AND state = 'open' ORDER BY id`, sid)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +223,7 @@ func stopCheck(ctx context.Context, st *store.Store, in map[string]any) (any, er
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	pending, err := trail.UnconfirmedEdits(ctx, st.DB, sid)
+	pending, err := trail.UnconfirmedEdits(ctx, st.DB(), sid)
 	if err != nil {
 		return nil, err
 	}

@@ -36,7 +36,7 @@ type Store struct {
 
 // Open resolves the project id from <repo>/.trail/id (creating it when missing) and opens <home>/<id>/trail.db.
 func Open(home, repo string) (*Store, error) {
-	id, err := projectID(repo)
+	id, err := EnsureID(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -72,18 +72,34 @@ func Open(home, repo string) (*Store, error) {
 
 func (s *Store) Close() error { return s.DB.Close() }
 
-func projectID(repo string) (string, error) {
+// ErrNoID is wrapped by ReadID when the repo has no .trail/id.
+var ErrNoID = errors.New("no .trail/id")
+
+// ReadID returns the project id in <repo>/.trail/id and never writes.
+func ReadID(repo string) (string, error) {
 	idPath := filepath.Join(repo, ".trail", "id")
-	if b, err := os.ReadFile(idPath); err == nil {
-		id := strings.TrimSpace(string(b))
-		if id == "" || strings.ContainsAny(id, `/\.`) {
-			return "", fmt.Errorf("invalid project id in %s", idPath)
-		}
-		return id, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	b, err := os.ReadFile(idPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("%w in %s", ErrNoID, repo)
+	}
+	if err != nil {
 		return "", err
 	}
-	id := RandomSlug(10)
+	id := strings.TrimSpace(string(b))
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		return "", fmt.Errorf("invalid project id in %s", idPath)
+	}
+	return id, nil
+}
+
+// EnsureID is ReadID that creates the id when the repo has none.
+func EnsureID(repo string) (string, error) {
+	id, err := ReadID(repo)
+	if !errors.Is(err, ErrNoID) {
+		return id, err
+	}
+	id = RandomSlug(10)
+	idPath := filepath.Join(repo, ".trail", "id")
 	if err := os.MkdirAll(filepath.Dir(idPath), 0o755); err != nil {
 		return "", err
 	}

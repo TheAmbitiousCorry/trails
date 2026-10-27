@@ -20,7 +20,7 @@ Full index: [docs/context/index.md](docs/context/index.md). Live plans: `docs/pl
 ## Layout
 
 ```
-server/      Go module: cmd/trails (binary), internal/{store,content,entries,signs,search,trail,mcp,web,anchor}
+server/      Go module: cmd/trails (binary), internal/{store,project,content,entries,signs,search,trail,mcp,web,anchor}
 frontend/    Vue 3, built into server/internal/web/dist
 protocol/    PROTOCOL.md, the single source of the walking protocol text
 adapters/    per-runtime wiring: claude-code, codex, gemini-cli, cursor, generic

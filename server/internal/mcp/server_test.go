@@ -14,24 +14,44 @@ import (
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
-func startServer(t *testing.T) (*store.Store, string) {
+// serveRepos opens each repo as a project in one registry and serves the registry on a loopback port.
+func serveRepos(t *testing.T, repos ...string) (*project.Registry, string) {
 	t.Helper()
-	st, err := store.Open(t.TempDir(), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	return serveHome(t, t.TempDir(), repos...)
+}
+
+// serveHome is serveRepos over a given Trail home, after OpenKnown has reopened what an earlier server left there.
+func serveHome(t *testing.T, home string, repos ...string) (*project.Registry, string) {
+	t.Helper()
+	reg := project.NewRegistry(home, 0)
+	t.Cleanup(func() { reg.Close() })
+	reg.OpenKnown()
+	for _, repo := range repos {
+		if _, err := store.EnsureID(repo); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reg.Open(repo); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Cleanup(func() { st.Close() })
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: mcp.Handler(st, ln.Addr().String())}
+	srv := &http.Server{Handler: mcp.Handler(reg, ln.Addr().String())}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
-	return st, ln.Addr().String()
+	return reg, ln.Addr().String()
+}
+
+func startServer(t *testing.T) (*store.Store, string) {
+	t.Helper()
+	reg, addr := serveRepos(t, t.TempDir())
+	return reg.List()[0].Store, addr
 }
 
 func structured(t *testing.T, res *sdk.CallToolResult, err error) map[string]any {

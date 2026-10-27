@@ -133,7 +133,7 @@ func (a *api) snippet(r *http.Request) (any, error) {
 	if pick == nil {
 		return nil, notFound("no file or range anchor")
 	}
-	full, err := repoFile(a.st.Repo, pick.PathOrURL)
+	full, err := repoFile(a.repo, pick.PathOrURL)
 	if err != nil {
 		return nil, notFound("anchored path is not readable")
 	}

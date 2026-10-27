@@ -171,6 +171,10 @@ description: Call this first, before reading project files. Returns session_id, 
 input_schema: {
   "additionalProperties": false,
   "properties": {
+    "project": {
+      "description": "the project id in the repo's .trail/id; optional only while the server holds one project",
+      "type": "string"
+    },
     "runtime_session_id": {
       "description": "your runtime's own session id, when its session-start hook printed one",
       "type": "string"
@@ -369,6 +373,7 @@ refusal rules
 - look_target
 - move_scope
 - paraphrase
+- project_unknown
 - reason
 - schema:body
 - schema:bytes

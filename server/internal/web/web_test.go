@@ -16,6 +16,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
@@ -85,11 +86,16 @@ func seed(t *testing.T) *fixture {
 	if err := os.WriteFile(filepath.Join(repo, "src", "round.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(t.TempDir(), repo)
+	if _, err := store.EnsureID(repo); err != nil {
+		t.Fatal(err)
+	}
+	reg := project.NewRegistry(t.TempDir(), 0)
+	t.Cleanup(func() { reg.Close() })
+	p, err := reg.Open(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	st := p.Store
 	for _, q := range []string{
 		`INSERT INTO signs (id, parent_id, title) VALUES ('billing', 'root', 'Billing')`,
 		`INSERT INTO signs (id, parent_id, title) VALUES ('invoices', 'billing', 'Invoices')`,
@@ -103,7 +109,7 @@ func seed(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: mcp.Handler(st, ln.Addr().String())}
+	srv := &http.Server{Handler: mcp.Handler(reg, ln.Addr().String())}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
 	f := &fixture{t: t, st: st, addr: ln.Addr().String()}

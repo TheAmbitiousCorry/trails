@@ -149,7 +149,7 @@ func firstDiff(want, got string) string {
 func TestRefusalRulesMatchSource(t *testing.T) {
 	re := regexp.MustCompile(`(?:Rule: *|refusal\(|refuse\(|Rule\w* += *)"([^"]+)"`)
 	found := map[string]bool{}
-	for _, dir := range []string{"trail", "entries", "signs", "content", "mcp"} {
+	for _, dir := range []string{"trail", "entries", "signs", "content", "mcp", "project"} {
 		files, _ := filepath.Glob(filepath.Join("..", dir, "*.go"))
 		for _, f := range files {
 			if strings.HasSuffix(f, "_test.go") {

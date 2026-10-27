@@ -14,7 +14,7 @@ import (
 )
 
 // RefusalRules names every rule this package refuses with; the mcp golden file pins them and a test keeps the list equal to the source.
-var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "stale", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open", "unconfirmed_edits", "closed_session"}
+var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "stale", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open", "unconfirmed_edits", "closed_session", "project_unknown"}
 
 // Refusal is a handler error that the trail logs as refused:<Rule> and the agent sees with its fix.
 type Refusal struct {
@@ -31,11 +31,17 @@ type Call struct {
 	Depth     string
 	// Mint asks the recorder to issue the session id; only session_start sets it.
 	Mint bool
+	// Project is the project id a minting call names; empty for every other call.
+	Project string
 }
 
 type Input interface{ Call() Call }
 
-type Recorder struct{ DB *sql.DB }
+// Resolver finds the project a call belongs to and the database its event is logged in.
+// A call it cannot place is returned as a *Refusal and is not logged, since there is no database to log it in.
+type Resolver[P any] interface {
+	Resolve(ctx context.Context, c Call) (P, *sql.DB, error)
+}
 
 type ctxKey struct{}
 
@@ -76,14 +82,19 @@ func SessionID(ctx context.Context) string {
 }
 
 // Record wraps a tool handler so the event row is written before it runs and its result after. Register every tool through it.
-func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In, Out]) sdk.ToolHandlerFor[In, Out] {
+// It resolves the call's project once and hands it to the handler, so no handler looks a project up itself.
+func Record[P any, In Input, Out any](r Resolver[P], tool string, h func(context.Context, *sdk.CallToolRequest, In, P) (*sdk.CallToolResult, Out, error)) sdk.ToolHandlerFor[In, Out] {
 	return func(ctx context.Context, req *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Out, error) {
 		var zero Out
 		c := in.Call()
+		p, db, err := r.Resolve(ctx, c)
+		if err != nil {
+			return nil, zero, err
+		}
 		if c.Mint {
 			c.SessionID = "s-" + store.RandomSlug(12)
 		}
-		res, err := r.DB.ExecContext(ctx,
+		res, err := db.ExecContext(ctx,
 			`INSERT INTO events (session_id, at, tool, target, depth, result) VALUES (?, ?, ?, ?, ?, 'pending')`,
 			c.SessionID, store.Now(), tool, c.Target, c.Depth)
 		if err != nil {
@@ -101,12 +112,12 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 				}
 			}
 			// Detached from ctx so a cancelled request still closes its event.
-			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ?, target = COALESCE(NULLIF(?, ''), target) WHERE id = ?`, result, shown, oc.target, eventID)
+			db.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ?, target = COALESCE(NULLIF(?, ''), target) WHERE id = ?`, result, shown, oc.target, eventID)
 		}()
 
 		if !c.Mint {
 			var ended sql.NullString
-			err := r.DB.QueryRowContext(ctx, `SELECT ended_at FROM sessions WHERE id = ?`, c.SessionID).Scan(&ended)
+			err := db.QueryRowContext(ctx, `SELECT ended_at FROM sessions WHERE id = ?`, c.SessionID).Scan(&ended)
 			if err == nil && ended.Valid {
 				ref := &Refusal{Rule: "closed_session", Fix: "this session has ended; start a new one with session_start"}
 				result = "refused:" + ref.Rule
@@ -115,7 +126,7 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 		}
 
 		hctx := context.WithValue(context.WithValue(ctx, ctxKey{}, c.SessionID), outcomeKey{}, oc)
-		out, o, herr := h(hctx, req, in)
+		out, o, herr := h(hctx, req, in, p)
 		var ref *Refusal
 		switch {
 		case herr == nil:
@@ -142,24 +153,6 @@ func StartSession(ctx context.Context, db *sql.DB, id, actor, task, taskType, ru
 	_, err := db.ExecContext(ctx, `INSERT INTO sessions (id, actor, task, task_type, runtime_session_id, started_at) VALUES (?, ?, ?, ?, NULLIF(?,''), ?)`,
 		id, actor, task, taskType, strings.TrimSpace(runtimeID), store.Now())
 	return err
-}
-
-// RequireSession refuses a call whose session id the server never issued.
-func RequireSession(ctx context.Context, db *sql.DB, id string) error {
-	ok, err := SessionExists(ctx, db, id)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return &Refusal{Rule: "unknown_session", Fix: "call session_start and use the session_id it returns"}
-	}
-	return nil
-}
-
-func SessionExists(ctx context.Context, db *sql.DB, id string) (bool, error) {
-	var n int
-	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE id = ?`, id).Scan(&n)
-	return n > 0, err
 }
 
 // LogRead records an entry served inside another call's response as a read event of its own.

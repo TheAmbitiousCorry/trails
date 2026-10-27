@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,36 +8,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/TheAmbitiousCorry/trails/internal/anchor"
-
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
-	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
 const sweepEvery = 6 * time.Hour
-
-// sweepLoop runs the sweep once now and then on every tick until ctx ends.
-func sweepLoop(ctx context.Context, st *store.Store) {
-	checker := anchor.Checker{Repo: st.Repo, Fetcher: anchor.NewFetch(&net.Resolver{})}
-	tick := time.NewTicker(sweepEvery)
-	defer tick.Stop()
-	for {
-		rep, err := trail.Sweep(ctx, st.DB, checker, time.Now)
-		if err != nil {
-			log.Printf("trails: sweep: %v", err)
-		} else {
-			log.Printf("trails: sweep checked %d, dormant %d, deleted %d, sessions closed %d", rep.Checked, rep.Dormant, rep.Deleted, rep.Closed)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
 
 func main() {
 	args := os.Args[1:]
@@ -59,45 +37,60 @@ func main() {
 	serve(args)
 }
 
+// repoFlags collects every --repo value.
+type repoFlags []string
+
+func (r *repoFlags) String() string     { return strings.Join(*r, ",") }
+func (r *repoFlags) Set(v string) error { *r = append(*r, v); return nil }
+
 func serve(args []string) {
 	cwd, _ := os.Getwd()
 	userHome, _ := os.UserHomeDir()
-	repo := flag.String("repo", cwd, "repository to serve")
-	addrFlag := flag.String("addr", defaultAddr, "listen address (default from <repo>/.trail/port)")
+	var repos repoFlags
+	flag.Var(&repos, "repo", "repository to serve; repeatable, the working directory when none is given")
+	addrFlag := flag.String("addr", defaultAddr, "listen address (default from the first repo's .trail/port)")
 	home := flag.String("home", filepath.Join(userHome, ".trail"), "Trail home")
 	flag.CommandLine.Parse(args)
+	if len(repos) == 0 {
+		repos = repoFlags{cwd}
+	}
 
-	addr, err := pickAddr(flag.CommandLine, *addrFlag, *repo)
+	addr, err := pickAddr(flag.CommandLine, *addrFlag, repos[0])
 	if err != nil {
 		log.Fatalf("trails: %v", err)
 	}
-	if err := run(*repo, addr, *home); err != nil {
+	if err := run(repos, addr, *home); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(repo, addr, home string) error {
-	repo, err := filepath.Abs(repo)
-	if err != nil {
-		return err
-	}
+func run(repos []string, addr, home string) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	st, err := store.Open(home, repo)
-	if err != nil {
-		return err
+	reg := project.NewRegistry(home, sweepEvery)
+	defer reg.Close()
+	reg.OpenKnown()
+	for _, repo := range repos {
+		repo, err := filepath.Abs(repo)
+		if err != nil {
+			return err
+		}
+		if _, err := store.EnsureID(repo); err != nil {
+			return err
+		}
+		if _, err := reg.Open(repo); err != nil {
+			return err
+		}
 	}
-	defer st.Close()
-
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
-	go sweepLoop(ctx, st)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("trails: project %s, db %s, listening on http://%s\n", st.ProjectID, st.Path, ln.Addr())
-	return http.Serve(ln, mcp.Handler(st, ln.Addr().String()))
+	for _, p := range reg.List() {
+		fmt.Printf("trails: project %s, db %s, repo %s\n", p.ID, p.Store.Path, p.Repo())
+	}
+	fmt.Printf("trails: listening on http://%s\n", ln.Addr())
+	return http.Serve(ln, mcp.Handler(reg, ln.Addr().String()))
 }

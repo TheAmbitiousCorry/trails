@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"net"
 	"strconv"
 	"strings"
 
@@ -14,9 +13,9 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/entries"
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
-	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
@@ -30,9 +29,10 @@ type sessionStartIn struct {
 	TaskType string `json:"task_type,omitempty" jsonschema:"kind of task, for example report, deploy, billing, bugfix; optional"`
 	// RuntimeSessionID lets the hook endpoints find this session from the runtime's own id.
 	RuntimeSessionID string `json:"runtime_session_id,omitempty" jsonschema:"your runtime's own session id, when its session-start hook printed one"`
+	Project          string `json:"project,omitempty" jsonschema:"the project id in the repo's .trail/id; optional only while the server holds one project"`
 }
 
-func (sessionStartIn) Call() trail.Call { return trail.Call{Mint: true} }
+func (s sessionStartIn) Call() trail.Call { return trail.Call{Mint: true, Project: s.Project} }
 
 type orient struct {
 	RootSign   signRef  `json:"root_sign"`
@@ -321,21 +321,18 @@ type sessionEndOut struct {
 	Lines    int  `json:"lines"`
 }
 
-func registerTools(srv *sdk.Server, st *store.Store) {
-	rec := &trail.Recorder{DB: st.DB}
-	checker := anchor.Checker{Repo: st.Repo, Fetcher: anchor.NewFetch(&net.Resolver{})}
-
+func registerTools(srv *sdk.Server, reg *project.Registry) {
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "session_start",
 		Description: "Call this first, before reading project files. Returns session_id, which every later call must carry, " +
 			"contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. " +
 			"One call is enough to start; do not call it again.",
-	}, trail.Record(rec, "session_start", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionStartIn) (*sdk.CallToolResult, sessionStartOut, error) {
+	}, trail.Record(reg, "session_start", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionStartIn, p *project.Project) (*sdk.CallToolResult, sessionStartOut, error) {
 		id := trail.SessionID(ctx)
-		if err := trail.StartSession(ctx, st.DB, id, "agent", in.Task, in.TaskType, in.RuntimeSessionID); err != nil {
+		if err := trail.StartSession(ctx, p.DB(), id, "agent", in.Task, in.TaskType, in.RuntimeSessionID); err != nil {
 			return nil, sessionStartOut{}, err
 		}
-		o, err := orientView(ctx, st.DB)
+		o, err := orientView(ctx, p.DB())
 		if err != nil {
 			return nil, sessionStartOut{}, err
 		}
@@ -348,11 +345,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
 			"depth summary returns the first paragraph, full returns the whole body. `path` lists the signs from the root to the entry's home. " +
 			"At depth full, prerequisites already served in this session are listed under `already_read`, not repeated; if one is no longer in your context, read it directly.",
-	}, trail.Record(rec, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn) (*sdk.CallToolResult, readOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, readOut{}, err
-		}
-		return readEntry(ctx, st.DB, checker, in)
+	}, trail.Record(reg, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn, p *project.Project) (*sdk.CallToolResult, readOut, error) {
+		return readEntry(ctx, p.DB(), p.Checker(), in)
 	}))
 
 	sdk.AddTool(srv, &sdk.Tool{
@@ -361,10 +355,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 			"A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. " +
 			"A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. " +
 			"Returns entry_id and tier.",
-	}, trail.Record(rec, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn) (*sdk.CallToolResult, writeOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, writeOut{}, err
-		}
+	}, trail.Record(reg, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn, p *project.Project) (*sdk.CallToolResult, writeOut, error) {
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
 			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID,
 			Resolution: in.Resolution, DistinctReason: in.DistinctReason}
@@ -374,7 +365,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		for _, a := range in.Anchors {
 			req.Anchors = append(req.Anchors, a.toAnchor())
 		}
-		res, err := entries.Write(ctx, st.DB, checker, req)
+		res, err := entries.Write(ctx, p.DB(), p.Checker(), req)
 		if err != nil {
 			return nil, writeOut{}, err
 		}
@@ -390,11 +381,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "write_sign",
 		Description: "Create a sign under parent_sign_id, optionally moving entries and child signs that hang directly under that parent into it. " +
 			"Use it to act on a split this fork refusal: pass the ids of one proposed group in move. Returns sign_id, title and how many entries and signs moved.",
-	}, trail.Record(rec, "write_sign", func(ctx context.Context, _ *sdk.CallToolRequest, in writeSignIn) (*sdk.CallToolResult, writeSignOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, writeSignOut{}, err
-		}
-		c, err := signs.CreateSign(ctx, st.DB, signs.CreateRequest{ParentID: in.ParentSignID, Title: in.Title, Move: in.Move})
+	}, trail.Record(reg, "write_sign", func(ctx context.Context, _ *sdk.CallToolRequest, in writeSignIn, p *project.Project) (*sdk.CallToolResult, writeSignOut, error) {
+		c, err := signs.CreateSign(ctx, p.DB(), signs.CreateRequest{ParentID: in.ParentSignID, Title: in.Title, Move: in.Move})
 		if err != nil {
 			return nil, writeSignOut{}, err
 		}
@@ -409,16 +397,13 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Description: "Use this before grep when you do not know where something lives. Returns up to limit entries (default 5, max 10) ranked verified above provisional above stale, " +
 			"each with id, title, read_when, tier, kind and sign_path (sign titles from the root to the entry's home sign), plus `miss` and `lines`. " +
 			"miss true means nothing matched well enough; a gap is opened at the sign you last looked at unless the project's open gaps are at their cap. " + untrustedNote,
-	}, trail.Record(rec, "search", func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn) (*sdk.CallToolResult, searchOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, searchOut{}, err
-		}
+	}, trail.Record(reg, "search", func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn, p *project.Project) (*sdk.CallToolResult, searchOut, error) {
 		limit := in.Limit
 		if limit <= 0 {
 			limit = defaultSearchLimit
 		}
 		limit = min(limit, maxSearchLimit)
-		hits, miss, err := search.Query(ctx, st.DB, in.Query, in.TaskType, limit)
+		hits, miss, err := search.Query(ctx, p.DB(), in.Query, in.TaskType, limit)
 		if err != nil {
 			return nil, searchOut{}, err
 		}
@@ -428,7 +413,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		}
 		trail.SetShown(ctx, ids)
 		if miss {
-			if _, err := trail.OpenGap(ctx, st.DB, in.SessionID, in.Query); err != nil {
+			if _, err := trail.OpenGap(ctx, p.DB(), in.SessionID, in.Query); err != nil {
 				return nil, searchOut{}, err
 			}
 			trail.SetResult(ctx, "miss")
@@ -446,12 +431,9 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Description: "Cheap, use it freely. Returns one sign: its summary, its parent's title and its edges, each with read_when, scent keywords and tier, plus `lines`, the size of the response. " +
 			"Pass sign_id or entry_id, or tag and/or kind (optionally within a sign_id) for a virtual sign gathering matches across the tree. " +
 			"depth 1 to 3 nests child signs; task_type folds edges outside that task. " + untrustedNote,
-	}, trail.Record(rec, "look", func(ctx context.Context, _ *sdk.CallToolRequest, in lookIn) (*sdk.CallToolResult, any, error) {
+	}, trail.Record(reg, "look", func(ctx context.Context, _ *sdk.CallToolRequest, in lookIn, p *project.Project) (*sdk.CallToolResult, any, error) {
 		// any, not signs.View: the SDK cannot derive an output schema for a recursive type.
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, nil, err
-		}
-		v, err := signs.Look(ctx, st.DB, signs.LookRequest{SignID: in.SignID, EntryID: in.EntryID, Tag: in.Tag, Kind: in.Kind,
+		v, err := signs.Look(ctx, p.DB(), signs.LookRequest{SignID: in.SignID, EntryID: in.EntryID, Tag: in.Tag, Kind: in.Kind,
 			Within: in.Within, Depth: in.Depth, TaskType: in.TaskType})
 		if err != nil {
 			return nil, nil, err
@@ -463,11 +445,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "confirm",
 		Description: "Vouch for a provisional entry after you read it at depth full and checked it against its anchors. Two distinct sessions confirming verify it; a human confirming verifies it alone. " +
 			"You cannot confirm an entry you wrote. Returns the entry's tier and how many sessions have confirmed it.",
-	}, trail.Record(rec, "confirm", func(ctx context.Context, _ *sdk.CallToolRequest, in confirmIn) (*sdk.CallToolResult, confirmOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, confirmOut{}, err
-		}
-		res, err := trail.Confirm(ctx, st.DB, checker, in.SessionID, in.EntryID)
+	}, trail.Record(reg, "confirm", func(ctx context.Context, _ *sdk.CallToolRequest, in confirmIn, p *project.Project) (*sdk.CallToolResult, confirmOut, error) {
+		res, err := trail.Confirm(ctx, p.DB(), p.Checker(), in.SessionID, in.EntryID)
 		if err != nil {
 			return nil, confirmOut{}, err
 		}
@@ -480,11 +459,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "resolve_gap",
 		Description: "Close one of your open gaps. action fill: target_id is an entry you wrote this session. action merge: target_id is an existing entry, and the gap's query becomes an alias on it. " +
 			"action dismiss: reason says why, 200 characters max; at most three dismissals per session.",
-	}, trail.Record(rec, "resolve_gap", func(ctx context.Context, _ *sdk.CallToolRequest, in resolveGapIn) (*sdk.CallToolResult, resolveGapOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, resolveGapOut{}, err
-		}
-		err := trail.ResolveGap(ctx, st.DB, in.SessionID, trail.Resolution{GapID: in.GapID, Action: in.Action, TargetID: in.TargetID, Reason: in.Reason})
+	}, trail.Record(reg, "resolve_gap", func(ctx context.Context, _ *sdk.CallToolRequest, in resolveGapIn, p *project.Project) (*sdk.CallToolResult, resolveGapOut, error) {
+		err := trail.ResolveGap(ctx, p.DB(), in.SessionID, trail.Resolution{GapID: in.GapID, Action: in.Action, TargetID: in.TargetID, Reason: in.Reason})
 		if err != nil {
 			return nil, resolveGapOut{}, err
 		}
@@ -500,11 +476,8 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		Name: "session_end",
 		Description: "End the session when the task is done. Refuses while the session has open gaps or entries anchored to files you edited and lists them; resolve each gap with resolve_gap, write or confirm each entry, then call again. " +
 			"Returns closed and the counts of reads, writes and confirms.",
-	}, trail.Record(rec, "session_end", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionEndIn) (*sdk.CallToolResult, sessionEndOut, error) {
-		if err := trail.RequireSession(ctx, st.DB, in.SessionID); err != nil {
-			return nil, sessionEndOut{}, err
-		}
-		c, err := trail.EndSession(ctx, st.DB, in.SessionID)
+	}, trail.Record(reg, "session_end", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionEndIn, p *project.Project) (*sdk.CallToolResult, sessionEndOut, error) {
+		c, err := trail.EndSession(ctx, p.DB(), in.SessionID)
 		if err != nil {
 			return nil, sessionEndOut{}, err
 		}

@@ -3,33 +3,20 @@ package mcp_test
 import (
 	"bytes"
 	"encoding/json"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/TheAmbitiousCorry/trails/internal/mcp"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
 func startRepoServer(t *testing.T) (*store.Store, string, string) {
 	t.Helper()
 	repo := t.TempDir()
-	st, err := store.Open(t.TempDir(), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &http.Server{Handler: mcp.Handler(st, ln.Addr().String())}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
-	return st, ln.Addr().String(), repo
+	reg, addr := serveRepos(t, repo)
+	return reg.List()[0].Store, addr, repo
 }
 
 func postAPI(t *testing.T, addr, route string, body map[string]any) map[string]any {

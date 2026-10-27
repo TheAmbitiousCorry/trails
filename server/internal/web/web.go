@@ -10,13 +10,18 @@ import (
 	"path"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
 //go:embed all:dist
 var distFS embed.FS
 
-type api struct{ st *store.Store }
+// api is built per request from the project the request resolves to.
+type api struct {
+	st   *store.Store
+	repo string
+}
 
 // statusError carries the HTTP status a handler wants; anything else is a 500.
 type statusError struct {
@@ -47,27 +52,36 @@ func handle(fn func(*http.Request) (any, error)) http.Handler {
 }
 
 // Register mounts the API and the embedded front end on mux, each behind guard.
-func Register(mux *http.ServeMux, st *store.Store, guard func(http.Handler) http.Handler) {
-	a := &api{st: st}
-	routes := map[string]func(*http.Request) (any, error){
-		"GET /api/map":                     a.siteMap,
-		"GET /api/search":                  a.search,
-		"GET /api/graph":                   a.graph,
-		"GET /api/signs/{id}":              a.sign,
-		"GET /api/entries/{id}":            a.entry,
-		"GET /api/entries/{id}/snippet":    a.snippet,
-		"GET /api/sessions":                a.sessions,
-		"GET /api/sessions/{id}":           a.session,
-		"GET /api/gaps":                    a.gaps,
-		"GET /api/provisional":             a.provisional,
-		"GET /api/tags":                    a.tags,
-		"GET /api/rejections":              a.rejections,
-		"GET /api/dismissals":              a.dismissals,
-		"POST /api/signs":                  a.createSign,
-		"POST /api/entries/{id}/supersede": a.supersede,
+// A route acts on the project sole returns; sole's error becomes a 409 for project_ambiguous and a 404 otherwise.
+func Register(mux *http.ServeMux, sole func() (*project.Project, error), guard func(http.Handler) http.Handler) {
+	routes := map[string]func(*api, *http.Request) (any, error){
+		"GET /api/map":                     (*api).siteMap,
+		"GET /api/search":                  (*api).search,
+		"GET /api/graph":                   (*api).graph,
+		"GET /api/signs/{id}":              (*api).sign,
+		"GET /api/entries/{id}":            (*api).entry,
+		"GET /api/entries/{id}/snippet":    (*api).snippet,
+		"GET /api/sessions":                (*api).sessions,
+		"GET /api/sessions/{id}":           (*api).session,
+		"GET /api/gaps":                    (*api).gaps,
+		"GET /api/provisional":             (*api).provisional,
+		"GET /api/tags":                    (*api).tags,
+		"GET /api/rejections":              (*api).rejections,
+		"GET /api/dismissals":              (*api).dismissals,
+		"POST /api/signs":                  (*api).createSign,
+		"POST /api/entries/{id}/supersede": (*api).supersede,
 	}
 	for pattern, fn := range routes {
-		mux.Handle(pattern, guard(handle(fn)))
+		mux.Handle(pattern, guard(handle(func(r *http.Request) (any, error) {
+			p, err := sole()
+			switch {
+			case errors.Is(err, project.ErrAmbiguous):
+				return nil, &statusError{http.StatusConflict, err.Error()}
+			case err != nil:
+				return nil, notFound(err.Error())
+			}
+			return fn(&api{st: p.Store, repo: p.Repo()}, r)
+		})))
 	}
 	mux.Handle("/", guard(spa()))
 }
