@@ -147,11 +147,11 @@ const open = (nodeId: string) => {
                   <q v-else-if="s.target">{{ s.target }}</q>
                 </p>
                 <p class="badges">
-                  <span v-if="s.turn_back" class="pill pill-turn">turned back</span>
-                  <span v-if="s.miss" class="pill pill-stale">miss</span>
-                  <RouterLink v-if="s.miss && s.gap_id" class="pill pill-gap" to="/gaps">gap {{ s.gap_id }}</RouterLink>
-                  <span v-if="s.result.startsWith('refused')" class="pill pill-stale">{{ s.result }}</span>
-                  <template v-if="s.touched"><span v-for="h in how.get(s.target)" :key="h" class="pill pill-touched">{{ h }} by this session</span></template>
+                  <span v-if="s.turn_back" class="chip chip-turn">turned back</span>
+                  <span v-if="s.miss" class="chip chip-stale">miss</span>
+                  <RouterLink v-if="s.miss && s.gap_id" class="chip chip-gap" to="/gaps">gap {{ s.gap_id }}</RouterLink>
+                  <span v-if="s.result.startsWith('refused')" class="chip chip-stale">{{ s.result }}</span>
+                  <template v-if="s.touched"><span v-for="h in how.get(s.target)" :key="h" class="chip chip-touched">{{ h }} by this session</span></template>
                   <span class="muted small">{{ when(s.at) }}</span>
                 </p>
                 <p v-if="s.prerequisites.length" class="small">
@@ -183,7 +183,7 @@ const open = (nodeId: string) => {
             <p v-if="!data.touched.length" class="muted small">None.</p>
             <ul class="plain">
               <li v-for="(t, i) in data.touched" :key="i" class="touched-row">
-                <span class="pill pill-touched">{{ t.how }}</span>
+                <span class="chip chip-touched">{{ t.how }}</span>
                 <RouterLink :to="{ name: 'entry', params: { id: t.id } }">{{ t.title }}</RouterLink>
                 <TierBadge :tier="t.tier" />
               </li>
@@ -198,13 +198,13 @@ const open = (nodeId: string) => {
 
 <style scoped>
 .replay-controls { align-items: center; }
-.play { font: inherit; padding: 0.35rem 0.9rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; min-width: 5rem; }
+.play { font: inherit; padding: 0.35rem 0.9rem; border: 0; border-radius: 6px; background: var(--s2); color: var(--fg); cursor: pointer; min-width: 5rem; }
 .scrub { flex-direction: row !important; align-items: center; gap: 0.5rem !important; flex: 1 1 14rem; max-width: 30rem; }
 .scrub input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .replay-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 900px) { .replay-grid { grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; } }
 .replay-map { height: 60vh; min-height: 24rem; }
-.hop-pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.2rem var(--gutter) 0.8rem; overflow-wrap: anywhere; }
+.hop-pane { background: var(--s1); border-radius: var(--radius); padding: 0.2rem var(--gutter) 0.8rem; overflow-wrap: anywhere; }
 .hop-title { font-weight: 600; margin-bottom: 0.3rem; }
 .caption { margin: 0.4rem 0 1rem; }
 .hop-select { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }

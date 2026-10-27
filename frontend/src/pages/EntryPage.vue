@@ -22,8 +22,8 @@ const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${enc
       <h1>{{ data.entry.title }}</h1>
       <p class="badges">
         <TierBadge :tier="data.entry.tier" />
-        <span class="pill pill-kind">{{ data.entry.kind }}</span>
-        <span v-if="data.entry.chain_length" class="pill pill-kind">chain +{{ data.entry.chain_length }}</span>
+        <span class="chip chip-kind">{{ data.entry.kind }}</span>
+        <span v-if="data.entry.chain_length" class="chip chip-kind">chain +{{ data.entry.chain_length }}</span>
         <span class="muted small">{{ data.entry.reads_30d }} reads in 30 days, updated {{ when(data.entry.updated_at) }}</span>
       </p>
       <p class="lede">{{ data.entry.read_when }}</p>
@@ -39,10 +39,10 @@ const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${enc
         <h2 id="anchors">Anchors</h2>
         <ul class="anchors">
           <li v-for="a in data.entry.anchors" :key="a.id" :class="{ failed: !a.ok }">
-            <span class="pill pill-kind">{{ a.type }}</span>
+            <span class="chip chip-kind">{{ a.type }}</span>
             <code>{{ a.path_or_url }}<template v-if="a.type === 'range'">:{{ a.range_start }}-{{ a.range_end }}</template></code>
             <span class="muted small">checked {{ when(a.last_checked_at ?? '') }}</span>
-            <span v-if="!a.ok" class="pill pill-stale">failed</span>
+            <span v-if="!a.ok" class="chip chip-stale">failed</span>
           </li>
         </ul>
       </section>
@@ -50,8 +50,8 @@ const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${enc
       <section v-if="data.links.length || data.backlinks.length" aria-labelledby="links">
         <h2 id="links">Links</h2>
         <ul class="plain">
-          <li v-for="l in data.links" :key="`l${l.relation}${l.id}`"><span class="pill pill-kind">{{ l.relation }}</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
-          <li v-for="l in data.backlinks" :key="`b${l.relation}${l.id}`"><span class="pill pill-kind">{{ l.relation }} this</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
+          <li v-for="l in data.links" :key="`l${l.relation}${l.id}`"><span class="chip chip-kind">{{ l.relation }}</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
+          <li v-for="l in data.backlinks" :key="`b${l.relation}${l.id}`"><span class="chip chip-kind">{{ l.relation }} this</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
         </ul>
       </section>
 

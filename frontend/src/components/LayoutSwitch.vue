@@ -14,6 +14,6 @@ defineEmits<{ choose: [l: LayoutKind] }>()
 
 <style scoped>
 .layout-switch { display: flex; gap: 0.35rem; }
-.layout-switch button { font: inherit; padding: 0.35rem 0.7rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
-.layout-switch button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.layout-switch button { font: inherit; padding: 0.35rem 0.7rem; border: 0; border-radius: 6px; background: var(--s2); color: var(--fg); cursor: pointer; }
+.layout-switch button[aria-pressed='true'] { background: var(--accent); color: var(--bg); font-weight: 500; }
 </style>

@@ -73,7 +73,7 @@ const open = (id: string) => {
 
 <style scoped>
 .whole-map { padding-bottom: 0.45rem; }
-.lg { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--muted); }
+.lg { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--mute); }
 .lg-sign { fill: var(--accent); }
 .lg-verified { fill: var(--verified); }
 .lg-provisional { fill: var(--provisional); }

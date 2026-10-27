@@ -67,8 +67,8 @@ function edgeCounts(e: Edge): string {
       <p class="lede">{{ data.view.summary }}</p>
       <p><RouterLink :to="{ path: '/graph', query: { focus: data.view.sign_id, depth: '1' } }">Show on graph</RouterLink></p>
       <p class="badges">
-        <span v-if="data.stale" class="pill pill-stale">{{ data.stale }} stale below</span>
-        <span v-if="data.open_gaps" class="pill pill-gap">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
+        <span v-if="data.stale" class="chip chip-stale">{{ data.stale }} stale below</span>
+        <span v-if="data.open_gaps" class="chip chip-gap">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
       </p>
 
       <section aria-labelledby="edges">
@@ -81,7 +81,7 @@ function edgeCounts(e: Edge): string {
               <RouterLink v-else-if="e.type === 'entry'" :to="{ name: 'entry', params: { id: e.id! } }">{{ e.title }}</RouterLink>
               <a v-else-if="e.type === 'group'" :href="`#kind-${e.kind}`">{{ e.title }}</a>
               <span v-else>{{ e.title }}</span>
-              <span class="pill pill-kind">{{ e.type }}</span>
+              <span class="chip chip-kind">{{ e.type }}</span>
               <TierBadge v-if="e.tier" :tier="e.tier" />
               <span class="muted small">{{ edgeCounts(e) }}</span>
             </div>
@@ -98,7 +98,7 @@ function edgeCounts(e: Edge): string {
           <header class="card-head">
             <h3><RouterLink :to="{ name: 'entry', params: { id: e.id } }">{{ e.title }}</RouterLink></h3>
             <TierBadge :tier="e.tier" />
-            <span v-if="e.chain_length" class="pill pill-kind" :title="`Reading this serves ${e.chain_length} prerequisite ${e.chain_length === 1 ? 'entry' : 'entries'} first`">chain +{{ e.chain_length }}</span>
+            <span v-if="e.chain_length" class="chip chip-kind" :title="`Reading this serves ${e.chain_length} prerequisite ${e.chain_length === 1 ? 'entry' : 'entries'} first`">chain +{{ e.chain_length }}</span>
           </header>
           <p class="read-when">{{ e.read_when }}</p>
           <p v-if="e.tags.length" class="chips"><span v-for="t in e.tags" :key="t" class="chip">{{ t }}</span></p>
@@ -109,9 +109,9 @@ function edgeCounts(e: Edge): string {
           </template>
           <ul v-if="e.anchors.length" class="anchors">
             <li v-for="a in e.anchors" :key="a.id" :class="{ failed: !a.ok }">
-              <span class="pill pill-kind">{{ a.type }}</span>
+              <span class="chip chip-kind">{{ a.type }}</span>
               <code>{{ a.path_or_url }}<template v-if="a.type === 'range'">:{{ a.range_start }}-{{ a.range_end }}</template></code>
-              <span v-if="!a.ok" class="pill pill-stale">failed</span>
+              <span v-if="!a.ok" class="chip chip-stale">failed</span>
             </li>
           </ul>
         </article>
@@ -129,8 +129,8 @@ function edgeCounts(e: Edge): string {
           </div>
           <fieldset v-if="childSigns.length || directEntries.length" class="move-under">
             <legend class="muted small">Move under it</legend>
-            <label v-for="c in childSigns" :key="c.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="c.id" />{{ c.title }} <span class="pill pill-kind">sign</span></label>
-            <label v-for="e in directEntries" :key="e.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="e.id" />{{ e.title }} <span class="pill pill-kind">{{ e.kind }}</span></label>
+            <label v-for="c in childSigns" :key="c.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="c.id" />{{ c.title }} <span class="chip chip-kind">sign</span></label>
+            <label v-for="e in directEntries" :key="e.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="e.id" />{{ e.title }} <span class="chip chip-kind">{{ e.kind }}</span></label>
           </fieldset>
         </form>
       </section>

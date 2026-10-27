@@ -22,8 +22,8 @@ const { data, error, loading } = useApi<{ sessions: SessionRow[] }>(() => '/api/
           <span class="count">{{ s.counts.reads }} reads</span>
           <span v-if="s.counts.writes" class="count">{{ s.counts.writes }} writes</span>
           <span v-if="s.counts.confirms" class="count">{{ s.counts.confirms }} confirms</span>
-          <span v-if="s.counts.off_trail" class="pill pill-kind">{{ s.counts.off_trail }} off trail</span>
-          <span v-if="s.counts.misses" class="pill pill-gap">{{ s.counts.misses }} {{ s.counts.misses === 1 ? 'miss' : 'misses' }}</span>
+          <span v-if="s.counts.off_trail" class="chip chip-kind">{{ s.counts.off_trail }} off trail</span>
+          <span v-if="s.counts.misses" class="chip chip-gap">{{ s.counts.misses }} {{ s.counts.misses === 1 ? 'miss' : 'misses' }}</span>
         </p>
       </li>
     </ul>

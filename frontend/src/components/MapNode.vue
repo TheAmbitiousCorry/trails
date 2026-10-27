@@ -36,8 +36,8 @@ const mix = computed(() => {
       <RouterLink class="node-title" :to="{ name: 'sign', params: { id: node.id } }">{{ node.title }}</RouterLink>
       <span class="badges">
         <span class="count" :title="mix">{{ node.entries }} {{ node.entries === 1 ? 'entry' : 'entries' }}</span>
-        <span v-if="node.stale" class="pill pill-stale" title="Stale entries below">{{ node.stale }} stale</span>
-        <span v-if="node.open_gaps" class="pill pill-gap" title="Open gaps at or below">{{ node.open_gaps }} {{ node.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
+        <span v-if="node.stale" class="chip chip-stale" title="Stale entries below">{{ node.stale }} stale</span>
+        <span v-if="node.open_gaps" class="chip chip-gap" title="Open gaps at or below">{{ node.open_gaps }} {{ node.open_gaps === 1 ? 'gap' : 'gaps' }}</span>
         <span v-if="heat" class="count">{{ node.reads_30d }} reads</span>
       </span>
     </div>

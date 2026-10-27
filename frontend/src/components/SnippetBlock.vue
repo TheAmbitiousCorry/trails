@@ -9,7 +9,7 @@ const { data, error } = useApi<Snippet>(() => `/api/entries/${encodeURIComponent
   <figure v-if="data" class="snippet">
     <figcaption>
       <code>{{ data.path }}:{{ data.start }}-{{ data.end }}</code>
-      <span v-if="!data.ok" class="pill pill-stale">anchor failed</span>
+      <span v-if="!data.ok" class="chip chip-stale">anchor failed</span>
     </figcaption>
     <pre><code>{{ data.text }}</code></pre>
     <p v-if="data.truncated" class="muted small">Showing the first {{ data.end - data.start + 1 }} lines.</p>

@@ -51,7 +51,7 @@ let moved = false
 let resizer: ResizeObserver | undefined
 
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
-const trailColour = (p: Placed) => (p.trail < 0 ? 'var(--text)' : `var(--trail-${(p.trail % 8) + 1})`)
+const trailColour = (p: Placed) => (p.trail < 0 ? 'var(--fg)' : `var(--trail-${(p.trail % 8) + 1})`)
 const trailVar = (i: number) => `var(--trail-${(i % 8) + 1})`
 const tierColour = (t?: string) => (t === 'verified' ? 'var(--verified)' : t === 'stale' ? 'var(--stale)' : 'var(--provisional)')
 const nodeSize = (p: Placed) => 4 + Math.sqrt(p.node.data.reads)
@@ -266,60 +266,52 @@ defineExpose({ fit, play, reset })
 
 <style scoped>
 .trailmap {
-  --trail-1: #2f6b5a; --trail-2: #b87a08; --trail-3: #3b63c9; --trail-4: #c0452c;
-  --trail-5: #7c4dbf; --trail-6: #1f8fa0; --trail-7: #b48a1a; --trail-8: #4f8f2a;
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 24rem;
-  background: var(--surface);
+  background: var(--s1);
   border-radius: var(--radius);
   overflow: hidden;
-}
-@media (prefers-color-scheme: dark) {
-  .trailmap {
-    --trail-1: #79c4ac; --trail-2: #e0a53a; --trail-3: #7fa7ff; --trail-4: #ef7a62;
-    --trail-5: #c99bff; --trail-6: #5fd0e0; --trail-7: #f0c674; --trail-8: #9ad66a;
-  }
 }
 svg { display: block; width: 100%; height: 100%; min-height: inherit; cursor: grab; touch-action: none; }
 svg:active { cursor: grabbing; }
 .tm-fit {
   position: absolute; top: 0.6rem; right: 0.6rem;
-  font: inherit; font-size: 0.85rem; color: var(--text); background: var(--bg);
-  border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.7rem; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--fg); background: var(--s2);
+  border: 0; border-radius: 6px; padding: 0.25rem 0.7rem; cursor: pointer;
 }
 .tm-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; }
 :deep(.tm-grid) { stroke: var(--line); stroke-opacity: 0.45; }
-:deep(.tm-casing path) { stroke: var(--text); stroke-opacity: 0.5; stroke-linecap: round; }
+:deep(.tm-casing path) { stroke: var(--fg); stroke-opacity: 0.5; stroke-linecap: round; }
 :deep(.tm-roads path) { stroke-linecap: round; }
-:deep(.tm-trailhead) { fill: var(--text); stroke: var(--surface); stroke-width: 3; }
-:deep(.tm-road-sign) { fill: var(--surface); stroke-width: 3; }
-:deep(.tm-road-entry) { fill: var(--surface); stroke-width: 2.5; }
+:deep(.tm-trailhead) { fill: var(--fg); stroke: var(--s1); stroke-width: 3; }
+:deep(.tm-road-sign) { fill: var(--s1); stroke-width: 3; }
+:deep(.tm-road-entry) { fill: var(--s1); stroke-width: 2.5; }
 :deep(.tm-hulls path) { fill-opacity: 0.06; stroke-opacity: 0.18; stroke-width: 18; stroke-linejoin: round; }
-:deep(.tm-shortcuts path) { stroke: var(--muted); stroke-opacity: 0.25; stroke-width: 1; }
+:deep(.tm-shortcuts path) { stroke: var(--mute); stroke-opacity: 0.25; stroke-width: 1; }
 :deep(.tm-hover path) { stroke: var(--accent); stroke-width: 1.8; stroke-opacity: 0.9; }
 :deep(.tm-links path) { stroke-width: 2.4; stroke-opacity: 0.8; }
 :deep(.tm-label.hidden) { opacity: 0; }
 :deep(.tm-node:hover .tm-label.hidden), :deep(.tm-node:focus .tm-label.hidden) { opacity: 1; }
 :deep(.tm-node:focus-visible) { outline: none; }
 :deep(.tm-node) { cursor: pointer; }
-:deep(.tm-node circle:not(.tm-road-entry):not(.tm-trailhead)), :deep(.tm-node rect:not(.tm-road-sign)) { stroke: var(--surface); stroke-width: 1.5; }
+:deep(.tm-node circle:not(.tm-road-entry):not(.tm-trailhead)), :deep(.tm-node rect:not(.tm-road-sign)) { stroke: var(--s1); stroke-width: 1.5; }
 :deep(.tm-node.dim) { opacity: 0.45; }
-:deep(.tm-node.lit circle), :deep(.tm-node.lit rect) { stroke: var(--text); stroke-width: 2.5; }
+:deep(.tm-node.lit circle), :deep(.tm-node.lit rect) { stroke: var(--fg); stroke-width: 2.5; }
 :deep(.tm-label) {
-  font-size: 11px; fill: var(--muted);
-  paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
+  font-size: 11px; fill: var(--mute); font-family: var(--sans);
+  paint-order: stroke; stroke: var(--s1); stroke-width: 3px; stroke-linejoin: round;
 }
-:deep(.tm-label.sign) { font-size: 12px; font-weight: 600; fill: var(--text); }
-:deep(.tm-node.lit .tm-label) { fill: var(--text); font-weight: 600; }
-:deep(.tm-start) { fill: none; stroke: var(--text); stroke-width: 2; }
-:deep(.tm-fork), :deep(.tm-walk) { fill: none; stroke: var(--text); stroke-width: 4; stroke-linecap: round; }
+:deep(.tm-label.sign) { font-size: 12px; font-weight: 600; fill: var(--fg); }
+:deep(.tm-node.lit .tm-label) { fill: var(--fg); font-weight: 600; }
+:deep(.tm-start) { fill: none; stroke: var(--fg); stroke-width: 2; }
+:deep(.tm-fork), :deep(.tm-walk) { fill: none; stroke: var(--fg); stroke-width: 4; stroke-linecap: round; }
 :deep(.tm-fork) { stroke-opacity: 0.14; }
 :deep(.tm-walk) { stroke-opacity: 0.75; }
-:deep(.tm-spur path) { fill: none; stroke: var(--text); stroke-opacity: 0.6; stroke-dasharray: 3 3; stroke-width: 1.5; }
-:deep(.tm-spur circle) { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; }
-:deep(.tm-badge circle) { fill: var(--text); }
+:deep(.tm-spur path) { fill: none; stroke: var(--fg); stroke-opacity: 0.6; stroke-dasharray: 3 3; stroke-width: 1.5; }
+:deep(.tm-spur circle) { fill: var(--s1); stroke: var(--fg); stroke-width: 1.5; }
+:deep(.tm-badge circle) { fill: var(--fg); }
 :deep(.tm-badge.current circle) { stroke: var(--accent); stroke-width: 3; }
-:deep(.tm-badge text) { font: 600 10px ui-monospace, monospace; fill: var(--surface); }
+:deep(.tm-badge text) { font: 500 10px var(--mono); fill: var(--s1); }
 </style>

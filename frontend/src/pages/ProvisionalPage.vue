@@ -15,7 +15,7 @@ const { data, error, loading } = useApi<{ entries: ProvisionalRow[] }>(() => '/a
         <h2 class="card-title"><RouterLink :to="{ name: 'entry', params: { id: e.id } }">{{ e.title }}</RouterLink></h2>
         <p class="read-when">{{ e.read_when }}</p>
         <p class="badges">
-          <span class="pill pill-kind">{{ e.kind }}</span>
+          <span class="chip chip-kind">{{ e.kind }}</span>
           <span class="count">{{ e.reads }} {{ e.reads === 1 ? 'read' : 'reads' }} ({{ e.reads_30d }} in 30 days)</span>
           <span class="count">{{ e.confirmed_by }} confirmed</span>
           <span class="muted small">{{ e.path.map((p) => p.title).join(' / ') }}</span>

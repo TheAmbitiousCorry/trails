@@ -13,7 +13,7 @@ const { data, error, loading } = useApi<{ tags: TagRow[] }>(() => '/api/tags')
       <li v-for="t in data.tags" :key="t.id" class="card" :class="{ undefined: !t.defined }">
         <h2 class="card-title">
           <RouterLink :to="{ name: 'map', query: { tag: t.id } }">{{ t.id }}</RouterLink>
-          <span v-if="!t.defined" class="pill pill-gap">undefined</span>
+          <span v-if="!t.defined" class="chip chip-gap">undefined</span>
         </h2>
         <p v-if="t.description">{{ t.description }}</p>
         <p v-else class="muted small">No description.</p>
