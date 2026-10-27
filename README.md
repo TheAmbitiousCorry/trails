@@ -14,13 +14,13 @@ What the system does is specified in `docs/context/`; start at [the index](docs/
 
 You need Go 1.25 or newer. The web UI needs Node 22 or newer when you build it.
 
-To start the server for the repo in your current directory:
+One server process serves every project on the machine. A repo opts in with `trails serve --repo` or `trails register`; to start the server with one project:
 
 ```bash
-cd server && go run ./cmd/trails --repo /path/to/your/project
+cd server && go run ./cmd/trails serve --repo /path/to/your/project
 ```
 
-The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Commit the id file; the database stays on your machine. A committed `.trail/map.md` can declare the sign tree and tag vocabulary, and the server applies it on every start.
+The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Add more projects with more `--repo` flags, or run `trails register` inside another repo while the server is up. Commit the id file; the database stays on your machine. A committed `.trail/map.md` can declare the sign tree and tag vocabulary, and the server applies it on every start.
 
 With the server running, open its pages from a terminal:
 
@@ -28,8 +28,6 @@ With the server running, open its pages from a terminal:
 trails open trail    # the latest session; also: map (default), graph
 trails status        # every project: entry count, open gaps
 ```
-
-`serve` is the default subcommand, so the command above is the same as `trails serve --repo /path/to/your/project`.
 
 To run the tests:
 
