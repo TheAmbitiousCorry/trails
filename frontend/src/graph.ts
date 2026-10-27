@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { getJSON, type GraphEdge, type GraphNode, type GraphResponse } from './api'
+import { buildTree, forkProngs, homeIdOf, pathIds, type Fork, type MapTreeNode } from './mapmodel'
 
 export interface TreeSign { id: string; title: string; signs: TreeSign[]; entries: GraphNode[] }
 
@@ -26,7 +27,7 @@ async function load() {
   }
 }
 
-const tree = computed<TreeSign[]>(() => {
+const signTree = computed<TreeSign[]>(() => {
   const byId = new Map<string, TreeSign>()
   for (const n of nodes.value) if (n.type === 'sign') byId.set(n.id, { id: n.id, title: n.title, signs: [], entries: [] })
   const roots: TreeSign[] = []
@@ -44,6 +45,26 @@ const tree = computed<TreeSign[]>(() => {
   return roots.length === 1 ? roots[0].signs : roots
 })
 
+/** The whole map from the root sign down, entries as leaves; null until the graph loads. */
+export function tree(): MapTreeNode | null {
+  return buildTree(nodes.value, edges.value)
+}
+
+/** Ids from the root to `id` inclusive. */
+export function pathTo(id: string): string[] {
+  return pathIds(nodes.value, id)
+}
+
+/** The sign `id` hangs under; a sign is its own home. */
+export function homeOf(id: string): string {
+  return homeIdOf(nodes.value, id)
+}
+
+/** The prongs an agent sees at a sign, rebuilt from the graph. */
+export function forkOf(signId: string): Fork {
+  return forkProngs(nodes.value, signId)
+}
+
 /** Refetches the graph so the sidebar tree shows signs created since it loaded. */
 export function invalidate(): Promise<void> {
   return load()
@@ -51,5 +72,5 @@ export function invalidate(): Promise<void> {
 
 export function useGraph() {
   if (!loaded) void load()
-  return { nodes, edges, loading, error, tree }
+  return { nodes, edges, loading, error, tree: signTree }
 }
