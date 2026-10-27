@@ -33,4 +33,5 @@ docs/        context (specs), plans (live work only), roadmap
 make run        # server on 127.0.0.1:7777 for the repo in the current directory, database in ~/.trail/<id>/
 make test       # go test ./... in server/, adapter drift check, hook script tests
 make build      # frontend build + embed + go build -> bin/trails
+make proof      # screenshots of every page into .proof/, against ADDR (default 127.0.0.1:7777)
 ```
