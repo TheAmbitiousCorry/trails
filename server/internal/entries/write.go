@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
+	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
@@ -116,6 +117,9 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 			return WriteResult{Refusal: ref}, err
 		}
 		w.prev = prev
+		if err := w.fillOmitted(ctx, req); err != nil {
+			return WriteResult{}, err
+		}
 		if w.req.Kind == "" {
 			w.req.Kind = prev.kind
 		}
@@ -237,6 +241,52 @@ func (w *writer) logScores(ctx context.Context, res WriteResult) error {
 	_, err = w.db.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result, shown_json) VALUES (?, ?, 'write_scores', ?, ?, ?)`,
 		w.req.Actor, store.Now(), target, result, string(b))
 	return err
+}
+
+// fillOmitted fills every field the update left out from the stored entry, so the rules judge the whole entry. An empty list differs from an absent one: tags and anchors sent as [] clear them.
+// requires and see_also are not filled; an update replaces both.
+func (w *writer) fillOmitted(ctx context.Context, orig WriteRequest) error {
+	var title, readWhen, body, tags string
+	var by, at sql.NullString
+	err := w.db.QueryRowContext(ctx, `SELECT title, read_when, body_json, tags_json, decided_by, decided_at FROM entries WHERE id = ?`, w.prev.id).
+		Scan(&title, &readWhen, &body, &tags, &by, &at)
+	if err != nil {
+		return err
+	}
+	r := &w.req
+	if r.Title == "" {
+		r.Title = title
+	}
+	if r.ReadWhen == "" {
+		r.ReadWhen = readWhen
+	}
+	if strings.TrimSpace(r.BodyMarkdown) == "" {
+		if r.BodyMarkdown, err = markdown.ToMarkdown(json.RawMessage(body)); err != nil {
+			return err
+		}
+	}
+	if orig.Tags == nil {
+		if err := json.Unmarshal([]byte(tags), &r.Tags); err != nil {
+			return err
+		}
+	}
+	if orig.Anchors == nil {
+		stored, err := anchor.Load(ctx, w.db, w.prev.id)
+		if err != nil {
+			return err
+		}
+		for _, a := range stored {
+			a.ID, a.EntryID = 0, ""
+			r.Anchors = append(r.Anchors, a)
+		}
+	}
+	if r.DecidedBy == "" {
+		r.DecidedBy = by.String
+	}
+	if r.DecidedAt == "" {
+		r.DecidedAt = at.String
+	}
+	return nil
 }
 
 func loadExisting(ctx context.Context, db *sql.DB, id string) (*existing, *trail.Refusal, error) {

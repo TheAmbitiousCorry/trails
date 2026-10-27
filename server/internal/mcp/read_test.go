@@ -3,6 +3,8 @@ package mcp_test
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -180,5 +182,47 @@ func TestWriteSignThroughTheRecorder(t *testing.T) {
 	st.DB.QueryRow(`SELECT result FROM events WHERE tool = 'write_sign' ORDER BY id DESC LIMIT 1`).Scan(&result)
 	if result != "refused:closed_session" {
 		t.Errorf("closed result = %q", result)
+	}
+}
+
+func TestReadReturnsAnchorsAndTags(t *testing.T) {
+	st, addr := startServer(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := entries.Write(ctx, st.DB, anchor.Checker{Repo: st.Repo}, entries.WriteRequest{Actor: "s-seed", ParentSignID: "root", Kind: "example", Title: "Anchored",
+		ReadWhen: "you need the anchored thing", BodyMarkdown: "A body.\n\nSecond paragraph.", Tags: []string{"billing"},
+		Anchors: []anchor.Anchor{{Type: "range", PathOrURL: "a.txt", RangeStart: 1, RangeEnd: 2}}})
+	if err != nil || res.Refusal != nil {
+		t.Fatalf("seed: %v %v", err, res.Refusal)
+	}
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(ctx, &sdk.StreamableClientTransport{Endpoint: "http://" + addr + "/mcp", HTTPClient: http.DefaultClient}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	call := func(name string, args map[string]any) map[string]any {
+		r, err := sess.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: args})
+		return structured(t, r, err)
+	}
+	sid := call("session_start", map[string]any{"task": "walk"})["session_id"].(string)
+	for _, depth := range []string{"summary", "full"} {
+		r := call("read", map[string]any{"session_id": sid, "entry_id": res.EntryID, "depth": depth})
+		if tags, _ := r["tags"].([]any); len(tags) != 1 || tags[0] != "billing" {
+			t.Errorf("%s: tags = %v", depth, r["tags"])
+		}
+		as, _ := r["anchors"].([]any)
+		if len(as) != 1 {
+			t.Fatalf("%s: anchors = %v", depth, r["anchors"])
+		}
+		a := as[0].(map[string]any)
+		if a["type"] != "range" || a["path"] != "a.txt" || a["start"] != float64(1) || a["end"] != float64(2) || a["ok"] != true {
+			t.Errorf("%s: anchor = %v", depth, a)
+		}
+		if _, has := r["untrusted"].(map[string]any)["tags"]; has {
+			t.Errorf("%s: tags leaked into untrusted", depth)
+		}
 	}
 }

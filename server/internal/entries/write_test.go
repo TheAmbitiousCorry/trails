@@ -215,3 +215,77 @@ func TestLinksAndChain(t *testing.T) {
 		t.Errorf("link to a missing entry: %+v", res.Refusal)
 	}
 }
+
+func TestUpdateKeepsOmittedFields(t *testing.T) {
+	st, c := open(t)
+	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := mustWrite(t, st, c, decision("Other", "Other body.")).EntryID
+	first := decision("Kept", "Kept body.")
+	first.Tags = []string{"billing", "deploy"}
+	first.Anchors = []anchor.Anchor{{Type: "file", PathOrURL: "a.txt"}}
+	id := mustWrite(t, st, c, first).EntryID
+
+	snapshot := func() string {
+		var title, readWhen, body, tags, by, at string
+		if err := st.DB.QueryRow(`SELECT title, read_when, body_json, tags_json, decided_by, decided_at FROM entries WHERE id = ?`, id).
+			Scan(&title, &readWhen, &body, &tags, &by, &at); err != nil {
+			t.Fatal(err)
+		}
+		var anchors string
+		rows, err := st.DB.Query(`SELECT type, path_or_url, hash FROM anchors WHERE entry_id = ? ORDER BY id`, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var a, p, h string
+			rows.Scan(&a, &p, &h)
+			anchors += a + "|" + p + "|" + h + ";"
+		}
+		return strings.Join([]string{title, readWhen, body, tags, by, at, anchors}, "\n")
+	}
+	before := snapshot()
+
+	res, err := entries.Write(context.Background(), st.DB, c, entries.WriteRequest{Actor: "s-2", EntryID: id, Requires: []string{other}, SeeAlso: []string{other}})
+	if err != nil || res.Refusal != nil {
+		t.Fatalf("link-only update: %v %v", err, res.Refusal)
+	}
+	if after := snapshot(); after != before {
+		t.Errorf("update changed omitted fields:\nbefore %q\nafter  %q", before, after)
+	}
+	if n := count(t, st.DB, `SELECT COUNT(*) FROM links WHERE from_id = ? AND to_id = ? AND relation = 'requires'`, id, other); n != 1 {
+		t.Errorf("requires links = %d", n)
+	}
+	if n := count(t, st.DB, `SELECT COUNT(*) FROM versions WHERE entry_id = ?`, id); n != 1 {
+		t.Errorf("link-only update appended a version: %d", n)
+	}
+
+	// Omitting both link lists clears them.
+	if res, err := entries.Write(context.Background(), st.DB, c, entries.WriteRequest{Actor: "s-2", EntryID: id}); err != nil || res.Refusal != nil {
+		t.Fatalf("clearing update: %v %v", err, res.Refusal)
+	}
+	if n := count(t, st.DB, `SELECT COUNT(*) FROM links WHERE from_id = ? OR to_id = ?`, id, id); n != 0 {
+		t.Errorf("links after clearing update = %d", n)
+	}
+}
+
+func TestCreateWithoutRequiredFieldsIsRefused(t *testing.T) {
+	st, c := open(t)
+	for rule, edit := range map[string]func(*entries.WriteRequest){
+		"schema:title":     func(r *entries.WriteRequest) { r.Title = "" },
+		"schema:read_when": func(r *entries.WriteRequest) { r.ReadWhen = "" },
+		"schema:body":      func(r *entries.WriteRequest) { r.BodyMarkdown = "" },
+	} {
+		req := decision("Needs fields", "A body.")
+		edit(&req)
+		res, err := entries.Write(context.Background(), st.DB, c, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Refusal == nil || res.Refusal.Rule != rule {
+			t.Errorf("refusal = %+v, want %s", res.Refusal, rule)
+		}
+	}
+}

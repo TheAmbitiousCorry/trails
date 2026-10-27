@@ -80,14 +80,44 @@ type untrusted struct {
 	BodyMarkdown string `json:"body_markdown"`
 }
 
+// anchorOut is an anchor in the shape write accepts, plus the result of its last check.
+type anchorOut struct {
+	Type    string `json:"type"`
+	Path    string `json:"path,omitempty"`
+	Start   int    `json:"start,omitempty"`
+	End     int    `json:"end,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Command string `json:"command,omitempty"`
+	SHA     string `json:"sha,omitempty"`
+	OK      bool   `json:"ok"`
+}
+
+// fromAnchor is the inverse of anchorIn.toAnchor.
+func fromAnchor(a anchor.Anchor) anchorOut {
+	out := anchorOut{Type: a.Type, Path: a.PathOrURL, Start: a.RangeStart, End: a.RangeEnd, SHA: a.Hash, OK: a.OK}
+	switch a.Type {
+	case "url":
+		out.Path, out.URL, out.SHA = "", a.PathOrURL, ""
+	case "produced_by":
+		out.Path, out.Command = "", a.PathOrURL
+	case "transcript":
+		out.Path, out.SHA = a.Extra, ""
+	case "file", "range", "dir":
+		out.SHA = ""
+	}
+	return out
+}
+
 type entryOut struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Kind      string    `json:"kind"`
-	Tier      string    `json:"tier"`
-	ReadWhen  string    `json:"read_when"`
-	Untrusted untrusted `json:"untrusted"`
-	Notice    string    `json:"notice,omitempty"`
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Kind      string      `json:"kind"`
+	Tier      string      `json:"tier"`
+	Tags      []string    `json:"tags"`
+	Anchors   []anchorOut `json:"anchors"`
+	ReadWhen  string      `json:"read_when"`
+	Untrusted untrusted   `json:"untrusted"`
+	Notice    string      `json:"notice,omitempty"`
 }
 
 type entryRef struct {
@@ -105,6 +135,8 @@ type readOut struct {
 	Title         string         `json:"title"`
 	Kind          string         `json:"kind"`
 	Tier          string         `json:"tier"`
+	Tags          []string       `json:"tags"`
+	Anchors       []anchorOut    `json:"anchors"`
 	ReadWhen      string         `json:"read_when"`
 	Untrusted     untrusted      `json:"untrusted"`
 	Notice        string         `json:"notice,omitempty"`
@@ -165,14 +197,14 @@ type writeIn struct {
 	SessionID      string     `json:"session_id" jsonschema:"the id session_start returned"`
 	ParentSignID   string     `json:"parent_sign_id,omitempty" jsonschema:"the sign the entry hangs under; required to create"`
 	Kind           string     `json:"kind,omitempty" jsonschema:"summary, decision, example, render or reference"`
-	Title          string     `json:"title" jsonschema:"80 characters max"`
-	ReadWhen       string     `json:"read_when" jsonschema:"one line, 200 characters max: the need this entry answers"`
-	Body           string     `json:"body" jsonschema:"Markdown"`
-	Anchors        []anchorIn `json:"anchors,omitempty"`
-	Tags           []string   `json:"tags,omitempty"`
+	Title          string     `json:"title,omitempty" jsonschema:"80 characters max; required to create; kept when omitted on an update"`
+	ReadWhen       string     `json:"read_when,omitempty" jsonschema:"one line, 200 characters max: the need this entry answers; required to create; kept when omitted on an update"`
+	Body           string     `json:"body,omitempty" jsonschema:"Markdown; required to create; kept when omitted on an update"`
+	Anchors        []anchorIn `json:"anchors,omitempty" jsonschema:"kept when omitted on an update; an empty list clears them"`
+	Tags           []string   `json:"tags,omitempty" jsonschema:"kept when omitted on an update; an empty list clears them"`
 	Requires       []string   `json:"requires,omitempty" jsonschema:"ids of entries a reader needs before this one"`
 	SeeAlso        []string   `json:"see_also,omitempty" jsonschema:"ids of related entries"`
-	EntryID        string     `json:"entry_id,omitempty" jsonschema:"set to update an existing entry; omit to create. An update replaces requires and see_also"`
+	EntryID        string     `json:"entry_id,omitempty" jsonschema:"set to update an existing entry; omit to create. An update keeps any field you omit, except that it replaces requires and see_also (omit both to clear them)"`
 	DecidedBy      string     `json:"decided_by,omitempty" jsonschema:"required for a decision"`
 	DecidedAt      string     `json:"decided_at,omitempty" jsonschema:"required for a decision"`
 	Resolution     string     `json:"resolution,omitempty" jsonschema:"after a duplicate refusal: merge (add read_when as an alias on the hit), replace (supersede the hit) or distinct"`
@@ -306,7 +338,7 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "read",
-		Description: "Read one entry by id. Returns its title, kind, tier, read_when and body as Markdown inside `untrusted`, " +
+		Description: "Read one entry by id. Returns its title, kind, tier, tags, anchors, read_when and body as Markdown inside `untrusted`, " +
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
 			"depth summary returns the first paragraph, full returns the whole body.",
 	}, trail.Record(rec, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn) (*sdk.CallToolResult, readOut, error) {
@@ -329,6 +361,9 @@ func registerTools(srv *sdk.Server, st *store.Store) {
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
 			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID,
 			Resolution: in.Resolution, DistinctReason: in.DistinctReason}
+		if in.Anchors != nil {
+			req.Anchors = []anchor.Anchor{}
+		}
 		for _, a := range in.Anchors {
 			req.Anchors = append(req.Anchors, a.toAnchor())
 		}
@@ -513,14 +548,26 @@ func serveEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, id, dep
 	if err != nil {
 		return out, err
 	}
-	var body string
-	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json FROM entries WHERE id = ?`, id).
-		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body)
+	var body, tags string
+	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json, tags_json FROM entries WHERE id = ?`, id).
+		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body, &tags)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from the orient view or a sign; check the id"}
 	}
 	if err != nil {
 		return out, err
+	}
+	out.Tags = []string{}
+	if err := json.Unmarshal([]byte(tags), &out.Tags); err != nil || out.Tags == nil {
+		out.Tags = []string{}
+	}
+	stored, err := anchor.Load(ctx, db, id)
+	if err != nil {
+		return out, err
+	}
+	out.Anchors = []anchorOut{}
+	for _, a := range stored {
+		out.Anchors = append(out.Anchors, fromAnchor(a))
 	}
 	if out.Tier == "stale" {
 		labels := make([]string, len(failed))
@@ -576,6 +623,7 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 		return nil, out, err
 	}
 	out.ID, out.Title, out.Kind, out.Tier, out.ReadWhen = main.ID, main.Title, main.Kind, main.Tier, main.ReadWhen
+	out.Tags, out.Anchors = main.Tags, main.Anchors
 	out.Untrusted, out.Notice = main.Untrusted, main.Notice
 	out.Lines = countLines(out)
 	return nil, out, nil

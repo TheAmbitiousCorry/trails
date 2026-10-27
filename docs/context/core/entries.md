@@ -80,7 +80,7 @@ A dormant provisional entry is deleted after a further 30 days. A dormant supers
 
 Every write passes these in order. The first failure returns the rule name and the fix.
 
-1. **Schema.** Kind, title (one line) and `read_when` (one line) fit their fields, every linked id exists, and the body, converted from Markdown, validates against the allow-list walker: node and mark types, URL schemes, depth, byte cap.
+1. **Schema.** Kind, title (one line), `read_when` (one line) and, on a create, body fit their fields, every linked id exists, and the body, converted from Markdown, validates against the allow-list walker: node and mark types, URL schemes, depth, byte cap.
 2. **Cap.** Word count within the kind's cap. Refusal: `split this`.
 3. **Anchor.** Anchor rule for the kind holds and every anchor resolves right now.
 4. **Duplicate.** The title, `read_when` and first body paragraph are searched. Only entries of the same kind are compared: a decision is checked against decisions, an example against examples, never against its own summary. A hit above the duplicate threshold returns the hit and three options: `merge` (add this `read_when` as an alias on the hit; new entries only), `replace` (supersede the hit, which goes dormant with `superseded_by` set; an agent may not replace a verified hit), `distinct` (write anyway, with a reason stored on the entry).
@@ -88,7 +88,7 @@ Every write passes these in order. The first failure returns the rule name and t
 6. **Fan-out.** The parent sign stays within its edge cap. The cap is owned by the signs package and the write path asks it only when the entry's kind is new under that parent, since kinds are the edges, see [signs](./signs.md#fan-out-cap).
 7. **Reachability.** The entry has exactly one parent sign and the parent is reachable from the root. An entry never hangs under two signs; a second axis is a tag, see [signs](./signs.md#virtual-signs).
 
-An update may change title, `read_when`, body, tags, anchors and links; it replaces the entry's `requires` and `see_also` links with the request's lists. Kind and parent are immutable, rule `immutable`, except through `write_sign`, which moves entries under a new sign. An agent write to an entry that is `verified` is refused with rule `verified` and stored as a new provisional entry with `conflicts_with` set.
+An update may change title, `read_when`, body, tags, anchors and links. A field the request leaves out (an empty string or an absent list) keeps its stored value before the rules run, so an update may send only `entry_id` and the fields it changes; an empty list for tags or anchors clears them. The exception is the links: an update replaces the entry's `requires` and `see_also` with the request's lists, so leaving both out clears them. A create needs title, `read_when` and body, and is refused `schema:title`, `schema:read_when` or `schema:body` without them. Kind and parent are immutable, rule `immutable`, except through `write_sign`, which moves entries under a new sign. An agent write to an entry that is `verified` is refused with rule `verified` and stored as a new provisional entry with `conflicts_with` set.
 
 ## Versions
 

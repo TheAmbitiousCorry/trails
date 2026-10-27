@@ -24,7 +24,7 @@ import (
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
-var RefusalRules = []string{"schema:kind", "schema:title", "schema:read_when", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
+var RefusalRules = []string{"schema:kind", "schema:title", "schema:read_when", "schema:body", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
 
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
@@ -41,6 +41,9 @@ func schema(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	}
 	if r.ReadWhen == "" || utf8.RuneCountInString(r.ReadWhen) > maxReadWhen || strings.ContainsAny(r.ReadWhen, "\r\n") {
 		return refusal("schema:read_when", "read_when is one line of 1 to %d characters naming the need this entry answers", maxReadWhen), nil
+	}
+	if w.prev == nil && strings.TrimSpace(r.BodyMarkdown) == "" {
+		return refusal("schema:body", "body is required to create an entry; send it as Markdown"), nil
 	}
 	body, err := markdown.FromMarkdown(r.BodyMarkdown)
 	if err != nil {
