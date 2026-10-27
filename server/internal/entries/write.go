@@ -20,7 +20,7 @@ import (
 const BodySchema = 1
 
 const (
-	maxTitle    = 80
+	maxTitle    = 48
 	maxReadWhen = 200
 )
 

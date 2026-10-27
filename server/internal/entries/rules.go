@@ -37,7 +37,7 @@ func schema(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		return refusal("schema:kind", "kind %q is not one of summary, decision, procedure, example, render, reference", r.Kind), nil
 	}
 	if r.Title == "" || utf8.RuneCountInString(r.Title) > maxTitle || strings.ContainsAny(r.Title, "\r\n") {
-		return refusal("schema:title", "title is one line of 1 to %d characters", maxTitle), nil
+		return refusal("schema:title", "title names the subject in at most %d characters, not a sentence", maxTitle), nil
 	}
 	if r.ReadWhen == "" || utf8.RuneCountInString(r.ReadWhen) > maxReadWhen || strings.ContainsAny(r.ReadWhen, "\r\n") {
 		return refusal("schema:read_when", "read_when is one line of 1 to %d characters naming the need this entry answers", maxReadWhen), nil

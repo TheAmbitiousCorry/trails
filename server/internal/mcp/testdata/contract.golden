@@ -313,7 +313,7 @@ input_schema: {
       ]
     },
     "title": {
-      "description": "80 characters max; required to create; kept when omitted on an update",
+      "description": "48 characters max: a noun phrase naming the subject, never a sentence or a claim; required to create; kept when omitted on an update",
       "type": "string"
     }
   },

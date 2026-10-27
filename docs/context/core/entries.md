@@ -13,7 +13,7 @@ An entry is one leaf of the tree: one fact, one decision, one example, one rende
 |---|---|
 | `id` | Stable slug, unique per project, never reused. Set at creation from the title (lowercase, hyphens, 60 characters at most, `-2`, `-3` appended when the slug is taken by an entry, a sign or an expired entry); a later title change does not change the id. The `write` tool derives the id and cannot pin one. |
 | `kind` | One of `summary`, `decision`, `example`, `render`, `reference`. |
-| `title` | 80 characters max. |
+| `title` | 48 characters max, a noun phrase of at most six words that names the entry's subject, such as "Milestone status" or "Client lifecycle". It is never a sentence or a claim: the claim is the first sentence of the body, and `read_when` carries the question a reader would ask. |
 | `read_when` | One line, 200 characters max: the trigger phrase that tells a reader this entry answers their need. Shown on every sign that lists the entry. |
 | `body` | ProseMirror JSON validated against the Trail schema (see [storage](./storage.md)). Cap per kind below. |
 | `anchors` | One or more, see Anchors. Required for every kind except `decision`. |
