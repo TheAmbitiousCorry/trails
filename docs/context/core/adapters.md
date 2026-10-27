@@ -17,10 +17,19 @@ Trails is agent-neutral. The server speaks MCP for agents and HTTP for hooks and
   - Hooks know the runtime's own session id, not the Trails one, so `session_start` accepts an optional `runtime_session_id`, and both hook endpoints resolve the open Trails session by it. A session-start hook prints the runtime id into the agent's context so it can pass it along. When no session matches, off-trail is dropped and stop-check replies `open: false`.
 - Fallbacks when a runtime has no hooks: the sweep closes a session with no call for four hours with `ended_by: timeout`, its gaps show in the browser's gap queue, and off-trail reads are simply not recorded.
 
+## Autostart
+
+The session-start hook starts the server when the repo contains `.trail/id` and nothing answers `GET /api/map` at the hook's address within one second. The repo is the `cwd` field of the hook payload, else the hook's working directory. It runs `$TRAILS_BIN` (default `trails` on `PATH`) with `serve --repo <repo> --addr <addr>`, detached, with output appended to `~/.trail/server-<id>.log`, and waits up to three seconds for `/api/map`. A repo with no `.trail/id` has not opted in: the hook starts nothing and prints nothing about the server. When the binary is missing it prints `Trails: no server and no binary; see adapters/README.md` into the agent's context. With a server already up the check is one `curl` with a one-second cap and nothing else changes.
+
+## Opening the browser
+
+Every adapter tells its agent to run `trails open trail` when the user asks to see the trail, `trails open map` or `trails open graph` for those pages, and to report the URL printed. Claude Code ships this as the user-invocable skill `trail` (`/trail`); the other runtimes carry a `Seeing the trail` section after the protocol text in their instructions file, which `scripts/check-adapters.sh` excludes from the protocol comparison. The command is the one described in [storage](./storage.md).
+
 ## What an adapter contains
 
 1. The protocol text from `protocol/PROTOCOL.md`, formatted for where that runtime reads project instructions.
 2. The MCP server entry for that runtime's configuration.
-3. Hook wiring that calls the three shared shell scripts in `adapters/generic/hooks/` (they source `trails-common.sh`) on that runtime's session-start, after-file-read and stop events, when it has them. `adapters/HOOKS.md` holds the verified event names and shapes per runtime.
+3. The `Seeing the trail` section (Claude Code: the `trail` skill).
+4. Hook wiring that calls the three shared shell scripts in `adapters/generic/hooks/` (they source `trails-common.sh`) on that runtime's session-start, after-file-read and stop events, when it has them. `adapters/HOOKS.md` holds the verified event names and shapes per runtime.
 
 `protocol/PROTOCOL.md` is the single source of the protocol text. Adapter copies are verbatim copies of it and `scripts/check-adapters.sh`, run by `make test`, fails when a copy drifts.

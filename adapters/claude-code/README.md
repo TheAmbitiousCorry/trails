@@ -1,6 +1,7 @@
 # claude-code adapter
 
 1. Copy `skills/trails/` from this directory to `.claude/skills/trails/` in the project.
+1b. Copy `skills/trail/` to `.claude/skills/trail/` as well; it gives the `/trail` command.
 2. Register the MCP server. .mcp.json:
 ```json
 { "mcpServers": { "trails": { "type": "http", "url": "http://127.0.0.1:7777/mcp" } } }

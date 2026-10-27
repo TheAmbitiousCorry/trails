@@ -6,7 +6,8 @@ root=$(pwd)
 hooks=$root/adapters/generic/hooks
 tmp=$(mktemp -d)
 pid=
-cleanup() { [ -z "$pid" ] || kill "$pid" 2>/dev/null || true; rm -rf "$tmp"; }
+pid2=
+cleanup() { [ -z "$pid" ] || kill "$pid" 2>/dev/null || true; [ -z "$pid2" ] || kill "$pid2" 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -84,12 +85,48 @@ printf '{"session_id":"rt-claude"}' | "$hooks/trails-stop.sh" >/dev/null
 out=$(printf '{"session_id":"rt-claude"}' | "$hooks/trails-stop.sh")
 expect_empty "stop after forced" "$out"
 
+# Autostart: a repo with .trail/id and no answering server gets TRAILS_BIN started and registration proceeds; a repo without the id starts nothing.
+fakehome=$tmp/fakehome
+mkdir -p "$fakehome" "$tmp/auto/.trail" "$tmp/noid" "$tmp/fake/api"
+echo 'autotest' > "$tmp/auto/.trail/id"
+echo '{}' > "$tmp/fake/api/map"
+cat > "$tmp/fake/trails" <<'FAKE'
+#!/bin/sh
+# Stand-in for trails serve --repo R --addr A: records its arguments and pid, then answers GET /api/map on A.
+echo "$*" > "$FAKE_DIR/args"
+echo $$ > "$FAKE_DIR/pid"
+cd "$FAKE_DIR"
+exec python3 -m http.server "${5##*:}" --bind 127.0.0.1
+FAKE
+chmod +x "$tmp/fake/trails"
+export FAKE_DIR=$tmp/fake
+aport=$(( port + 1 ))
+[ "$aport" -lt 65535 ] || aport=$(( port - 1 ))
+auto_hook() { # CWD_DIR -> runs the session-start hook with cwd given in the payload
+  printf '{"session_id":"rt-auto","cwd":"%s"}' "$1" | HOME=$fakehome TRAILS_URL=http://127.0.0.1:$aport TRAILS_BIN=$tmp/fake/trails "$hooks/trails-session-start.sh"
+}
+out=$(auto_hook "$tmp/noid")
+[ "$out" = "Trails runtime_session_id: rt-auto" ] || fail "no-id session-start: got '$out'"
+[ ! -e "$tmp/fake/args" ] || fail "no-id repo started the server"
+out=$(auto_hook "$tmp/auto")
+pid2=$(cat "$tmp/fake/pid" 2>/dev/null || true)
+[ "$out" = "Trails runtime_session_id: rt-auto" ] || fail "autostart session-start: got '$out'"
+[ "$(cat "$tmp/fake/args")" = "serve --repo $tmp/auto --addr 127.0.0.1:$aport" ] || fail "autostart args: got '$(cat "$tmp/fake/args")'"
+[ -f "$fakehome/.trail/server-autotest.log" ] || fail "autostart wrote no log under ~/.trail"
+curl -sf --max-time 1 -o /dev/null "http://127.0.0.1:$aport/api/map" || fail "autostarted server does not answer"
+out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome TRAILS_URL=http://127.0.0.1:$aport TRAILS_BIN=/nonexistent/trails "$hooks/trails-session-start.sh")
+[ "$out" = "Trails runtime_session_id: rt-auto" ] || fail "server up, binary missing: got '$out'"
+[ -z "${pid2:-}" ] || { kill "$pid2" 2>/dev/null || true; pid2=; }
+out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome TRAILS_URL=http://127.0.0.1:$aport TRAILS_BIN=/nonexistent/trails "$hooks/trails-session-start.sh")
+[ "$out" = "Trails: no server and no binary; see adapters/README.md
+Trails runtime_session_id: rt-auto" ] || fail "no server, no binary: got '$out'"
+
 # An unknown session and an unreachable server both pass through silently.
 out=$(printf '{"session_id":"nobody"}' | "$hooks/trails-stop.sh")
 expect_empty "unknown session stop" "$out"
 for s in trails-session-start trails-off-trail trails-stop; do
   set +e
-  out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"src/a.go"}}' | TRAILS_URL=http://127.0.0.1:1 "$hooks/$s.sh" 2>&1)
+  out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"src/a.go"}}' | TRAILS_BIN=/nonexistent TRAILS_URL=http://127.0.0.1:1 "$hooks/$s.sh" 2>&1)
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "$s with server down exited $rc"
