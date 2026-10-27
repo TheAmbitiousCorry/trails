@@ -197,48 +197,6 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
 .side-hit-title { display: flex; align-items: center; gap: 0.35rem; overflow-wrap: anywhere; }
 .twist:disabled { cursor: default; }
 
-/* Graph */
-.depth-toggle { display: flex; align-items: center; gap: 0.35rem; padding-bottom: 0.1rem; }
-.depth-toggle button { font: inherit; padding: 0.35rem 0.7rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
-.depth-toggle button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
-.whole-map { padding-bottom: 0.45rem; }
-.lg { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--muted); }
-.graph-layout { display: flex; gap: 1rem; align-items: stretch; }
-.graph-svg { flex: 1; min-width: 0; min-height: 70vh; height: 70vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); touch-action: none; cursor: grab; }
-.hop-list { flex: 0 0 18rem; max-height: 70vh; overflow-y: auto; }
-.hop-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
-.hop-list ol { margin: 0; }
-.g-sign { fill: var(--accent); }
-.g-entry { stroke: var(--surface); stroke-width: 1.5; }
-.g-tier-verified { fill: var(--verified); }
-.g-tier-provisional { fill: var(--provisional); }
-.g-tier-stale { fill: var(--stale); }
-.g-node { cursor: pointer; }
-.g-node:focus-visible { outline: 2px solid var(--accent); }
-.g-label { font-size: 11px; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
-.g-label-hover { display: none; }
-.g-node:hover .g-label-hover, .g-node:focus .g-label-hover { display: block; }
-.g-edge { stroke-width: 1.5; fill: none; }
-.g-home { stroke: var(--line); stroke-width: 1; }
-.g-edge.g-rel-requires, .g-marker.g-rel-requires path { stroke: var(--accent); fill: var(--accent); }
-.g-edge.g-rel-see_also, .g-marker.g-rel-see_also path { stroke: var(--muted); fill: var(--muted); }
-.g-edge.g-rel-supersedes, .g-marker.g-rel-supersedes path { stroke: var(--provisional); fill: var(--provisional); }
-.g-edge.g-rel-conflicts_with, .g-marker.g-rel-conflicts_with path { stroke: var(--stale); fill: var(--stale); }
-.g-marker path { stroke: none; }
-.g-dim { opacity: 0.15; }
-.g-hot { stroke-width: 2.5; }
-.g-route { pointer-events: none; }
-.g-path { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
-.g-route-marker path { fill: var(--accent); stroke: none; }
-.g-prereq { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
-.g-node.g-on-route .g-entry, .g-node.g-on-route .g-sign { stroke: var(--accent); stroke-width: 3.5; }
-.g-hop circle { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
-.g-hop text { font-size: 10px; font-weight: 700; text-anchor: middle; fill: var(--surface); }
-@media (max-width: 900px) {
-  .graph-layout { flex-direction: column; }
-  .hop-list { flex: none; max-height: none; }
-}
-
 .add-sign { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.5rem 0; }
 .add-sign input { flex: 1 1 14rem; min-width: 0; font: inherit; padding: 0.4rem 0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
 .add-sign input[aria-invalid="true"] { border-color: var(--stale); }
