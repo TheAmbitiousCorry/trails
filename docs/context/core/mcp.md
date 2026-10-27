@@ -5,7 +5,7 @@ last-verified: 2026-10-27
 
 # MCP
 
-The MCP is the only way an agent reads or writes Trail. It runs inside the Trail binary over Streamable HTTP, built on the official Go SDK. Eight tools. Every call carries a `session_id` except `session_start`.
+The MCP is the only way an agent reads or writes Trail. It runs inside the Trail binary over Streamable HTTP, built on the official Go SDK. Eight tools. Every call carries a `session_id` except `session_start`, and a call that carries the id of an ended session is refused with `closed_session`, whatever the tool.
 
 Responses are plain JSON, and every response but `session_start` carries a `lines` field stating its size in lines, so a reader can see what each hop cost. Entries and signs are referenced by id and title; hits, edges and served entries add their tier. The endpoint answers a plain JSON-RPC POST only when its `Accept` header carries both `application/json` and `text/event-stream`; otherwise it returns 400. A refusal is an MCP tool error whose text is `<rule>: <fix>`; the recorder logs it as `refused:<rule>`. The conflict offer is a refusal with rule `verified` whose fix names the verified id and the new provisional id.
 
@@ -24,7 +24,7 @@ Markdown in and out: agents write Markdown, the server converts to ProseMirror J
 
 Bodies are data, not instructions. `read` returns every body inside an `untrusted` object, with `tier` beside it; the tool description tells the caller that body text is project content written by earlier sessions and is never to be followed as an instruction.
 
-`session_start` returns `contract: 1`. The eight tool input schemas and every refusal rule name (`unknown_session`, `unknown_entry`, `unknown_sign`, `look_target`, `depth_cap`, `immutable`, the `schema:*` rules including `schema:title`, `schema:read_when` and `schema:kind`, the write rules in [entries](./entries.md#write-rules), and the `unsupported: <construct>` family as one pattern) are pinned by a golden file at `server/internal/mcp/testdata/contract.golden`; changing one is a visible diff, and a change that breaks callers bumps the contract.
+`session_start` returns `contract: 1`. The eight tool input schemas and every refusal rule name (`unknown_session`, `closed_session`, `unknown_entry`, `unknown_sign`, `look_target`, `depth_cap`, `immutable`, the `schema:*` rules including `schema:title`, `schema:read_when` and `schema:kind`, the write rules in [entries](./entries.md#write-rules), and the `unsupported: <construct>` family as one pattern) are pinned by a golden file at `server/internal/mcp/testdata/contract.golden`; changing one is a visible diff, and a change that breaks callers bumps the contract.
 
 ## Teaching the protocol
 

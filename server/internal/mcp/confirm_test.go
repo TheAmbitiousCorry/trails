@@ -145,6 +145,10 @@ func TestConfirmResolveGapSessionEnd(t *testing.T) {
 		t.Fatalf("merged alias is not searchable: %v", hit)
 	}
 
+	// Another session cannot resolve this session's gap, and a resolved gap stays resolved.
+	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "unknown_gap")
+	a.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "gap_closed")
+
 	end := a.ok("session_end", map[string]any{})
 	if end["closed"] != true || end["reads"] != float64(1) || end["writes"] != float64(1) || end["confirms"] != float64(0) {
 		t.Errorf("session_end = %v", end)
@@ -155,9 +159,17 @@ func TestConfirmResolveGapSessionEnd(t *testing.T) {
 		t.Errorf("session row: ended_by %q runtime_session_id %q", endedBy, runtime)
 	}
 
-	// Another session cannot resolve this session's gap, and a resolved gap stays resolved.
-	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "unknown_gap")
-	a.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "gap_closed")
+	// An ended session accepts no further call, whatever the tool.
+	for tool, args := range map[string]map[string]any{
+		"write":       {"parent_sign_id": "root", "kind": "decision", "title": "t", "read_when": "r", "body": "b"},
+		"confirm":     {"entry_id": id},
+		"resolve_gap": {"gap_id": gap, "action": "merge", "target_id": id},
+		"read":        {"entry_id": id},
+		"look":        {"sign_id": "root"},
+		"session_end": {},
+	} {
+		a.refused(tool, args, "closed_session")
+	}
 }
 
 func TestFillDismissAndDismissCap(t *testing.T) {

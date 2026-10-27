@@ -9,7 +9,7 @@ The trail is the record of what every reader did. The MCP, the two hook endpoint
 
 ## Sessions
 
-A session starts with `session_start(task, task_type)`, where `task_type` is optional and stored as an empty string when absent, and ends with `session_end`. The server issues the session id and every later call carries it. Every session has `actor: agent`. The sweep closes a session with no call for four hours with `ended_by: timeout`; since the sweep runs every six hours, that happens at the first sweep after the four hours. `ended_by` is `agent`, `forced` or `timeout`.
+A session starts with `session_start(task, task_type)`, where `task_type` is optional and stored as an empty string when absent, and ends with `session_end`. The server issues the session id and every later call carries it. Every session has `actor: agent`. The sweep closes a session with no call for four hours with `ended_by: timeout`; since the sweep runs every six hours, that happens at the first sweep after the four hours. `ended_by` is `agent`, `forced` or `timeout`. An ended session accepts no further call: the recorder refuses any tool but `session_start` that carries its id with `closed_session` ("this session has ended; start a new one with session_start") and logs `refused:closed_session`.
 
 ## Events
 

@@ -14,7 +14,7 @@ import (
 )
 
 // RefusalRules names every rule this package refuses with; the mcp golden file pins them and a test keeps the list equal to the source.
-var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open"}
+var RefusalRules = []string{"task_empty", "unknown_session", "unknown_entry", "unread", "self", "unknown_gap", "gap_closed", "fill_target", "reason", "dismiss_cap", "action", "gaps_open", "closed_session"}
 
 // Refusal is a handler error that the trail logs as refused:<Rule> and the agent sees with its fix.
 type Refusal struct {
@@ -95,6 +95,16 @@ func Record[In Input, Out any](r *Recorder, tool string, h sdk.ToolHandlerFor[In
 			// Detached from ctx so a cancelled request still closes its event.
 			r.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE events SET result = ?, shown_json = ? WHERE id = ?`, result, shown, eventID)
 		}()
+
+		if !c.Mint {
+			var ended sql.NullString
+			err := r.DB.QueryRowContext(ctx, `SELECT ended_at FROM sessions WHERE id = ?`, c.SessionID).Scan(&ended)
+			if err == nil && ended.Valid {
+				ref := &Refusal{Rule: "closed_session", Fix: "this session has ended; start a new one with session_start"}
+				result = "refused:" + ref.Rule
+				return nil, zero, ref
+			}
+		}
 
 		hctx := context.WithValue(context.WithValue(ctx, ctxKey{}, c.SessionID), outcomeKey{}, oc)
 		out, o, herr := h(hctx, req, in)

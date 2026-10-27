@@ -323,6 +323,7 @@ input_schema: {
 refusal rules
 - action
 - anchor
+- closed_session
 - depth_cap
 - dismiss_cap
 - duplicate
