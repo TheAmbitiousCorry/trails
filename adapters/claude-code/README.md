@@ -1,7 +1,8 @@
 # claude-code adapter
 
-1. Copy `skills/trails/` from this directory to `.claude/skills/trails/` in the project.
-1b. Copy `skills/trail/` to `.claude/skills/trail/` as well; it gives the `/trail` command.
+The repo is itself a Claude Code plugin: `.claude-plugin/plugin.json`, `skills/trails` and `skills/trail`, `hooks/hooks.json` and `.mcp.json` at the root. Install it from a marketplace that lists it (`claude plugin install trails@nibble-skills`) and skip the steps below. Manual wiring:
+
+1. Copy `skills/trails/` and `skills/trail/` from the repo root to `.claude/skills/` in the project; the second gives the `/trail` command.
 2. Register the MCP server. .mcp.json:
 ```json
 { "mcpServers": { "trails": { "type": "http", "url": "http://127.0.0.1:7777/mcp" } } }

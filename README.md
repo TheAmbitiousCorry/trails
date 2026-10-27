@@ -66,3 +66,13 @@ The walking skeleton is complete: the server with nine MCP tools, anchors, searc
 ## License
 
 AGPL 3.0. See `LICENSE`.
+
+## Install as a plugin
+
+The repo is a Claude Code plugin. Add it through a marketplace that lists it, or straight from GitHub:
+
+```bash
+claude plugin install trails@nibble-skills
+```
+
+The plugin carries the walking protocol skill, the `/trail` command, the three hooks and the MCP server entry on 127.0.0.1:7777. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the server for any repo with a committed `.trail/id`.

@@ -1,0 +1,14 @@
+{
+  "description": "Trails: register the session and start the server if needed, signpost native reads that land on a mapped file, and hold the turn open while gaps are unresolved",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-session-start.sh\"", "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Read|Grep|Glob", "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-off-trail.sh\"", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "TRAILS_BLOCK_FORMAT=block \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-stop.sh\"", "timeout": 10 } ] }
+    ]
+  }
+}
