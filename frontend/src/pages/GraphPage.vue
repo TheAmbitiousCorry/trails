@@ -17,7 +17,7 @@ const LABEL_ENTRIES_BELOW = 60
 const FIT_PAD = 24
 const ROUTE_FIT_PAD = 48
 const WALK_COLUMN_MIN = 110
-const WALK_LABEL_MAX = 30
+const WALK_LABEL_MAX = 48
 const LINK_COLOURS = new Set(['requires', 'see_also', 'supersedes', 'conflicts_with'])
 
 const route = useRoute()
@@ -30,6 +30,7 @@ const depth = computed(() => (one(route.query.depth) === '2' ? 2 : 1))
 const tag = computed(() => one(route.query.tag))
 const session = computed(() => one(route.query.session))
 const whole = ref(false)
+watch(session, () => { whole.value = false })
 const filtered = computed(() => !!(focus.value || tag.value || session.value))
 
 const api = useApi<GraphResponse>(() => {

@@ -244,3 +244,8 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
 .add-sign input[aria-invalid="true"] { border-color: var(--stale); }
 .add-sign button { font: inherit; color: var(--bg); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; }
 .add-sign button:disabled { opacity: 0.6; cursor: default; }
+
+.add-sign .move-under { flex: 1 1 100%; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.4rem 0.7rem; margin: 0; }
+.move-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+.move-item input { flex: none; }
+.refusal { padding: 0.6rem 0.8rem; border: 1px solid var(--stale); border-radius: var(--radius); background: var(--surface); }

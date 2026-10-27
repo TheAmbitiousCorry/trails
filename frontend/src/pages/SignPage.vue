@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, postJSON, useApi, type Edge, type SignResponse } from '../api'
 import { invalidate } from '../graph'
@@ -13,20 +13,33 @@ const router = useRouter()
 const { data, error, loading } = useApi<SignResponse>(() => `/api/signs/${encodeURIComponent(String(route.params.id))}`)
 
 const newTitle = ref('')
-const createError = ref('')
+const moveIds = ref<string[]>([])
+const createError = ref<{ rule: string; fix: string } | { message: string } | null>(null)
 const creating = ref(false)
-watch(() => route.params.id, () => { newTitle.value = ''; createError.value = '' })
+watch(() => route.params.id, () => { newTitle.value = ''; createError.value = null; moveIds.value = [] })
+
+const childSigns = computed(() => (data.value?.view.edges ?? []).filter((e) => e.type === 'sign' && e.id))
+const directEntries = computed(() => (data.value?.groups ?? []).flatMap((g) => g.entries))
+
+// The server's refusal body is "rule: fix".
+function refusal(e: unknown) {
+  if (e instanceof ApiError && e.status === 404) return { message: 'This sign no longer exists' }
+  const text = e instanceof Error ? e.message : String(e)
+  const at = text.indexOf(': ')
+  if (e instanceof ApiError && e.status === 400 && at > 0) return { rule: text.slice(0, at), fix: text.slice(at + 2) }
+  return { message: text }
+}
 
 async function createSign() {
   if (creating.value) return
   creating.value = true
-  createError.value = ''
+  createError.value = null
   try {
-    const out = await postJSON<{ sign_id: string }>('/api/signs', { parent_id: String(route.params.id), title: newTitle.value, move: [] })
+    const out = await postJSON<{ sign_id: string }>('/api/signs', { parent_id: String(route.params.id), title: newTitle.value, move: moveIds.value })
     await invalidate()
     await router.push({ name: 'sign', params: { id: out.sign_id } })
   } catch (e) {
-    createError.value = e instanceof ApiError || e instanceof Error ? e.message : String(e)
+    createError.value = refusal(e)
   } finally {
     creating.value = false
   }
@@ -110,8 +123,16 @@ function edgeCounts(e: Edge): string {
           <label for="new-sign-title" class="muted small">Title</label>
           <input id="new-sign-title" v-model="newTitle" type="text" maxlength="80" required autocomplete="off" :aria-describedby="createError ? 'new-sign-error' : undefined" :aria-invalid="!!createError" />
           <button type="submit" :disabled="creating">Add sign</button>
+          <fieldset v-if="childSigns.length || directEntries.length" class="move-under">
+            <legend class="muted small">Move under it</legend>
+            <label v-for="c in childSigns" :key="c.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="c.id" />{{ c.title }} <span class="pill pill-kind">sign</span></label>
+            <label v-for="e in directEntries" :key="e.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="e.id" />{{ e.title }} <span class="pill pill-kind">{{ e.kind }}</span></label>
+          </fieldset>
         </form>
-        <p v-if="createError" id="new-sign-error" class="notice error" role="alert">{{ createError }}</p>
+        <div v-if="createError" id="new-sign-error" class="refusal" role="alert">
+          <template v-if="'rule' in createError"><strong>{{ createError.rule }}</strong>: {{ createError.fix }}</template>
+          <template v-else>{{ createError.message }}</template>
+        </div>
       </section>
     </template>
   </Load>
