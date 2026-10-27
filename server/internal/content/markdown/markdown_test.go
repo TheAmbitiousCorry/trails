@@ -184,6 +184,25 @@ func TestFromMarkdownRefusals(t *testing.T) {
 	}
 }
 
+func TestFromMarkdownTreatsPlaceholderAsText(t *testing.T) {
+	const src = "Timestamps are in <UTC> and `<b>` stays code.\n"
+	raw, err := FromMarkdown(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ToMarkdown(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Timestamps are in \\<UTC> and `<b>` stays code.\n"; out != want {
+		t.Errorf("got %q want %q", out, want)
+	}
+	roundTrip(t, raw)
+	if _, err := FromMarkdown("a <b>bold</b> c\n"); err == nil {
+		t.Error("real tag <b> must stay refused")
+	}
+}
+
 func TestFromMarkdownSchemaRefusalsPassThrough(t *testing.T) {
 	_, err := FromMarkdown("[x](javascript:alert)\n")
 	var ref *content.Refusal

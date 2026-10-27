@@ -5,6 +5,7 @@ package markdown
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/content"
@@ -316,6 +317,15 @@ func (p *reader) inlineNode(n gast.Node, marks []any, depth int) []any {
 	case gast.KindImage:
 		p.refuse(unsupported("inline image"))
 	case gast.KindRawHTML:
+		var raw strings.Builder
+		r := n.(*gast.RawHTML)
+		for i := 0; i < r.Segments.Len(); i++ {
+			seg := r.Segments.At(i)
+			raw.Write(seg.Value(p.source))
+		}
+		if !isRealTag(raw.String()) {
+			return []any{textNode(raw.String(), marks)}
+		}
 		p.refuse(unsupported("inline html"))
 	case east.KindStrikethrough:
 		p.refuse(unsupported("strikethrough"))
@@ -374,4 +384,24 @@ func unescape(b []byte) string {
 		}
 	}
 	return out.String()
+}
+
+var tagName = regexp.MustCompile(`^<(/?)([A-Za-z][A-Za-z0-9-]*)`)
+
+// htmlElements are the element names whose tags count as real HTML; goldmark parses any angle-bracket word as raw HTML, so a placeholder such as <UTC> must not match.
+var htmlElements = map[string]bool{}
+
+func init() {
+	for _, e := range strings.Fields(`a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup option output p param picture pre progress q rp rt ruby s samp script search section select slot small source span strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u ul var video wbr center font frame frameset marquee big tt strike`) {
+		htmlElements[e] = true
+	}
+}
+
+// isRealTag reports whether raw inline HTML is a tag of a known element, a comment, a declaration or a processing instruction. Anything else is prose.
+func isRealTag(raw string) bool {
+	m := tagName.FindStringSubmatch(raw)
+	if m == nil {
+		return true
+	}
+	return htmlElements[strings.ToLower(m[2])]
 }
