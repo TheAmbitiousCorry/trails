@@ -57,15 +57,14 @@ ul, ol { padding-left: 1.2rem; }
 main.wrap { padding-bottom: 4rem; }
 
 .shell { display: flex; align-items: flex-start; min-height: 100vh; }
-.sidebar { position: sticky; top: 0; flex: none; width: 18rem; height: 100vh; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); padding: 1rem 0.75rem; }
+.sidebar { position: sticky; top: 0; flex: none; width: 18rem; height: 100vh; overflow: hidden; background: var(--surface); border-right: 1px solid var(--line); padding: 1rem 0.75rem; }
 .brand { display: block; font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--text); padding: 0.2rem 0.55rem 0.8rem; }
 .side-nav { display: flex; flex-direction: column; gap: 0.1rem; }
 .side-nav a { color: var(--muted); text-decoration: none; padding: 0.35rem 0.55rem; border-radius: 6px; }
 .side-nav a:hover { color: var(--text); }
 .side-nav a.current { color: var(--text); background: var(--code-bg); font-weight: 600; }
 .sidebar { display: flex; flex-direction: column; }
-.side-tree-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-bottom: 0.75rem; }
-.side-nav { flex: none; border-top: 1px solid var(--line); padding-top: 0.5rem; }
+.side-nav { flex: none; margin-top: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.5rem; }
 .side-tree { list-style: none; margin: 0; padding: 0; }
 .side-tree .side-tree { margin-left: 0.8rem; padding-left: 0.3rem; border-left: 1px solid var(--line); }
 .side-row { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
@@ -84,7 +83,7 @@ main.wrap { padding-bottom: 4rem; }
   .shell { display: block; }
   .menu-toggle { display: inline-block; }
   .sidebar { display: none; }
-  .sidebar.open { display: block; position: fixed; z-index: 20; inset: 0 auto 0 0; max-width: 85vw; box-shadow: 0 0 24px rgba(0, 0, 0, 0.3); }
+  .sidebar.open { display: flex; position: fixed; z-index: 20; inset: 0 auto 0 0; max-width: 85vw; box-shadow: 0 0 24px rgba(0, 0, 0, 0.3); }
   .scrim.open { display: block; position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, 0.4); border: 0; }
 }
 
@@ -188,9 +187,11 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
   .node-row .badges { margin-left: 2.2rem; width: 100%; }
 }
 
-.side-search { flex: none; margin-bottom: 0.6rem; }
-.side-search-input { box-sizing: border-box; width: 100%; font: inherit; padding: 0.4rem 0.55rem; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
-.side-hits { list-style: none; margin: 0.4rem 0 0; padding: 0; max-height: 40vh; overflow-y: auto; border-bottom: 1px solid var(--line); }
+.side-search { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.side-search-input { flex: none; box-sizing: border-box; width: 100%; font: inherit; padding: 0.4rem 0.55rem; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+.side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 0.6rem; }
+.side-head { margin: 0.5rem 0 0.25rem; padding: 0 0.4rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.side-hits { list-style: none; margin: 0 0 0.5rem; padding: 0; }
 .side-hit { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.3rem 0.4rem; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.92rem; }
 .side-hit:hover { background: var(--code-bg); }
 .side-hit-title { display: flex; align-items: center; gap: 0.35rem; overflow-wrap: anywhere; }
@@ -226,10 +227,13 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
 .g-marker path { stroke: none; }
 .g-dim { opacity: 0.15; }
 .g-hot { stroke-width: 2.5; }
-.g-path { fill: none; stroke: var(--touch-line); stroke-width: 3; stroke-linejoin: round; opacity: 0.85; }
-.g-prereq { stroke: var(--touch-line); stroke-width: 2; stroke-dasharray: 5 4; }
-.g-hop circle { fill: var(--touch-bg); stroke: var(--touch-line); stroke-width: 2; }
-.g-hop text { font-size: 10px; font-weight: 700; text-anchor: middle; fill: var(--text); }
+.g-route { pointer-events: none; }
+.g-path { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.g-route-marker path { fill: var(--accent); stroke: none; }
+.g-prereq { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+.g-node.g-on-route .g-entry, .g-node.g-on-route .g-sign { stroke: var(--accent); stroke-width: 3.5; }
+.g-hop circle { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+.g-hop text { font-size: 10px; font-weight: 700; text-anchor: middle; fill: var(--surface); }
 @media (max-width: 900px) {
   .graph-layout { flex-direction: column; }
   .hop-list { flex: none; max-height: none; }

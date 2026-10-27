@@ -26,8 +26,12 @@ watch(() => route.fullPath, () => { open.value = false })
     <button v-if="open" type="button" class="scrim open" aria-label="Close menu" tabindex="-1" @click="open = false"></button>
     <aside id="sidebar" class="sidebar" :class="{ open }" @keydown.esc="open = false">
       <RouterLink to="/" class="brand">Trails</RouterLink>
-      <SidebarSearch v-model="query" />
-      <nav class="side-tree-nav" aria-label="Wiki"><SidebarTree :query="query" /></nav>
+      <SidebarSearch v-model="query">
+        <nav class="side-tree-nav" aria-label="Wiki">
+          <h2 v-if="query.trim()" class="side-head">In the tree</h2>
+          <SidebarTree :query="query" />
+        </nav>
+      </SidebarSearch>
       <nav class="side-nav" aria-label="Pages">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to" :exact-active-class="l.to === '/' ? 'current' : ''" :active-class="l.to === '/' ? '' : 'current'">{{ l.label }}</RouterLink>
       </nav>

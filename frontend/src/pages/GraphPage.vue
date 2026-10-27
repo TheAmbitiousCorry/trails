@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { drag } from 'd3-drag'
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force'
+import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force'
 import { select, type Selection } from 'd3-selection'
-import { zoom } from 'd3-zoom'
+import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom'
 import { hopVerb, useApi, type GraphEdge, type GraphHop, type GraphNode, type GraphResponse } from '../api'
 import { useGraph } from '../graph'
 import Load from '../components/Load.vue'
@@ -14,6 +14,8 @@ type SimLink = SimulationLinkDatum<SimNode> & { relation: string }
 
 const FOLD_ABOVE = 150
 const LABEL_ENTRIES_BELOW = 60
+const FIT_PAD = 24
+const ROUTE_FIT_PAD = 48
 const LINK_COLOURS = new Set(['requires', 'see_also', 'supersedes', 'conflicts_with'])
 
 const route = useRoute()
@@ -60,10 +62,13 @@ function setQuery(key: string, value: string) {
 
 const svgEl = ref<SVGSVGElement | null>(null)
 let sim: Simulation<SimNode, SimLink> | null = null
+// d3-zoom reads its transform from the element, so every fit goes through this one behaviour.
+let zoomer: ZoomBehavior<SVGSVGElement, unknown> | null = null
 
 function stop() {
   sim?.stop()
   sim = null
+  zoomer = null
   if (svgEl.value) select(svgEl.value).selectAll('*').remove()
 }
 
@@ -87,11 +92,12 @@ function draw() {
   const labelEntries = entryCount < LABEL_ENTRIES_BELOW
   const maxReads = Math.max(1, ...shown.map((n) => n.reads_30d ?? 0))
 
+  const routeIds = new Set((g.route ?? []).filter((h) => h.kind !== 'query').flatMap((h) => [h.target, ...h.prerequisites]))
   const nodes: SimNode[] = shown.map((n) => ({
     ...n,
     r: n.type === 'sign' ? 11 : 5 + 9 * Math.sqrt((n.reads_30d ?? 0) / maxReads),
     label: n.type === 'sign' && folded.value ? `${n.title} (${subtree.get(n.id) ?? 0})` : n.title,
-    labelAlways: n.type === 'sign' || labelEntries,
+    labelAlways: n.type === 'sign' || labelEntries || routeIds.has(n.id),
   }))
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const edges: GraphEdge[] = g.edges.filter((e) => byId.has(e.from) && byId.has(e.to))
@@ -108,8 +114,19 @@ function draw() {
     .attr('orient', 'auto-start-reverse')
     .append('path').attr('d', 'M0,0 L10,5 L0,10 z')
 
+  svg.select('defs').append('marker').attr('id', 'arrow-route').attr('class', 'g-route-marker')
+    .attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5).attr('markerUnits', 'userSpaceOnUse').attr('markerWidth', 12).attr('markerHeight', 12)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,0 L10,5 L0,10 z')
+
+  // Once the reader pans, zooms or drags, the automatic fits stop so they do not undo that.
+  let userMoved = false
   const layer = svg.append('g')
-  svg.call(zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 6]).on('zoom', (ev) => layer.attr('transform', ev.transform.toString())))
+  zoomer = zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 6]).on('zoom', (ev) => {
+    layer.attr('transform', ev.transform.toString())
+    if (ev.sourceEvent) userMoved = true
+  })
+  svg.call(zoomer)
 
   const linkSel = layer.append('g').selectAll('line').data(links).join('line')
     .attr('class', (l) => `g-edge ${LINK_COLOURS.has(l.relation) ? `g-rel-${l.relation}` : 'g-home'}`)
@@ -134,52 +151,126 @@ function draw() {
     linkSel.classed('g-hot', (l) => linked(n, l)).classed('g-dim', (l) => !linked(n, l))
   }).on('mouseleave blur', () => linkSel.classed('g-hot', false).classed('g-dim', false))
 
+  const small = nodes.length < 40
+  const homeDist = small ? 90 : 40
+  const typedDist = small ? 90 : 70
   sim = forceSimulation(nodes)
-    .force('link', forceLink<SimNode, SimLink>(links).id((n) => n.id).distance((l) => (l.relation === 'home' ? 45 : 90)))
-    .force('charge', forceManyBody().strength(-160))
-    .force('center', forceCenter(w / 2, h / 2))
+    .force('link', forceLink<SimNode, SimLink>(links).id((n) => n.id).distance((l) => (l.relation === 'home' ? homeDist : typedDist)))
+    .force('charge', forceManyBody().strength(small ? -300 : -120))
+    .force('x', forceX<SimNode>(w / 2).strength(0.05))
+    .force('y', forceY<SimNode>(h / 2).strength(0.05))
     .force('collide', forceCollide<SimNode>((n) => n.r + 4))
+    .alphaDecay(0.04)
+    .stop()
+  // Centre-based collision cannot keep side labels apart, so small graphs also push overlapping label boxes apart vertically.
+  if (small) sim.force('labels', labelForce(nodes))
 
   nodeSel.call(drag<SVGGElement, SimNode>()
-    .on('start', (ev, n) => { if (!ev.active) sim?.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y })
+    .on('start', (ev, n) => { if (!ev.active) sim?.alphaTarget(0.3).restart(); n.fx = n.x; n.fy = n.y; userMoved = true })
     .on('drag', (ev, n) => { n.fx = ev.x; n.fy = ev.y })
     .on('end', (ev, n) => { if (!ev.active) sim?.alphaTarget(0); n.fx = null; n.fy = null }))
 
-  const overlay = drawRoute(layer, byId)
-  sim.on('tick', () => {
+  const overlay = drawRoute(layer, byId, nodeSel)
+  const paint = () => {
     linkSel.attr('x1', (l) => (l.source as SimNode).x ?? 0).attr('y1', (l) => (l.source as SimNode).y ?? 0)
       .attr('x2', (l) => (l.target as SimNode).x ?? 0).attr('y2', (l) => (l.target as SimNode).y ?? 0)
     nodeSel.attr('transform', (n) => `translate(${n.x ?? 0},${n.y ?? 0})`)
     overlay()
+  }
+
+  // With a session set the view frames the walk, not the whole graph.
+  const fit = () => {
+    if (userMoved || !zoomer) return
+    const onRoute = routeIds.size ? nodes.filter((n) => routeIds.has(n.id)) : []
+    const box = onRoute.length ? onRoute : nodes
+    const pad = onRoute.length ? ROUTE_FIT_PAD : FIT_PAD
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const n of box) {
+      const x = n.x ?? 0, y = n.y ?? 0
+      // Visible labels sit to the right of the node, so they count towards the box.
+      const lw = labelWidth(n)
+      x0 = Math.min(x0, x - n.r); y0 = Math.min(y0, y - n.r)
+      x1 = Math.max(x1, x + n.r + lw); y1 = Math.max(y1, y + n.r)
+    }
+    const cw = el.clientWidth || w
+    const ch = el.clientHeight || h
+    const k = Math.min(onRoute.length ? 1.5 : 1, Math.max(0.2, Math.min((cw - 2 * pad) / Math.max(x1 - x0, 1), (ch - 2 * pad) / Math.max(y1 - y0, 1))))
+    const t = zoomIdentity.translate(cw / 2 - k * (x0 + x1) / 2, ch / 2 - k * (y0 + y1) / 2).scale(k)
+    svg.call(zoomer.transform, t)
+  }
+
+  // Settle most of the layout before the first paint so the opening frame is already framed.
+  sim.tick(100)
+  paint()
+  fit()
+  let ticks = 100
+  let fallback = false
+  sim.on('tick', () => {
+    paint()
+    if (++ticks === 300 && !fallback) { fallback = true; fit() }
   })
+  sim.on('end', () => { fallback = true; fit() })
+  sim.restart()
+}
+
+function labelWidth(n: SimNode): number {
+  return n.labelAlways ? Math.min(n.label.length * 6.2, 300) + 4 : 0
+}
+
+function labelForce(nodes: SimNode[]) {
+  return () => {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j]
+        const ax = a.x ?? 0, bx = b.x ?? 0, dy = (b.y ?? 0) - (a.y ?? 0)
+        const ox = Math.min(ax + a.r + labelWidth(a), bx + b.r + labelWidth(b)) - Math.max(ax - a.r, bx - b.r)
+        const oy = (Math.max(2 * a.r, 14) + Math.max(2 * b.r, 14)) / 2 + 2 - Math.abs(dy)
+        if (ox <= 0 || oy <= 0) continue
+        const push = oy * 0.15 * (dy >= 0 ? 1 : -1)
+        a.vy = (a.vy ?? 0) - push
+        b.vy = (b.vy ?? 0) + push
+      }
+    }
+  }
 }
 
 type Layer = Selection<SVGGElement, unknown, null, undefined>
 
 // Returns a function that re-positions the route overlay; query hops have no node and are skipped.
-function drawRoute(layer: Layer, byId: Map<string, SimNode>): () => void {
+function drawRoute(layer: Layer, byId: Map<string, SimNode>, nodeSel: Selection<SVGGElement, SimNode, SVGGElement, unknown>): () => void {
   const hops = (graph.value?.route ?? []).filter((h) => h.kind !== 'query' && byId.has(h.target))
   if (!hops.length) return () => {}
+  const onRoute = new Set(hops.map((h) => h.target))
+  nodeSel.classed('g-on-route', (n) => onRoute.has(n.id))
   const g = layer.append('g').attr('class', 'g-route')
-  const path = g.append('path').attr('class', 'g-path')
-  const prereq = hops.flatMap((h) => h.prerequisites.filter((p) => byId.has(p)).map((p) => ({ from: p, to: h.target })))
-  const dashed = g.selectAll('line').data(prereq).join('line').attr('class', 'g-prereq')
+  const prereq = hops.flatMap((h) => h.prerequisites.filter((p) => byId.has(p) && p !== h.target).map((p) => ({ from: p, to: h.target })))
+  const dashed = g.append('g').selectAll('line').data(prereq).join('line').attr('class', 'g-prereq')
+  // Consecutive hops on one node have nothing to join, so they get no segment.
+  const steps = hops.slice(1).map((h, i) => ({ from: hops[i].target, to: h.target })).filter((s) => s.from !== s.to)
+  const segs = g.append('g').selectAll('path').data(steps).join('path').attr('class', 'g-path').attr('marker-end', 'url(#arrow-route)')
   const seen = new Map<string, number>()
   const marks = hops.map((h) => {
     const k = seen.get(h.target) ?? 0
     seen.set(h.target, k + 1)
     return { h, k }
   })
-  const badge = g.selectAll('g').data(marks).join('g').attr('class', 'g-hop')
+  const badge = g.append('g').selectAll('g').data(marks).join('g').attr('class', 'g-hop')
   badge.append('circle').attr('r', 8)
   badge.append('text').attr('y', 3.5).text((m) => m.h.n)
   const pos = (id: string) => byId.get(id)!
   return () => {
-    path.attr('d', hops.map((h, i) => `${i ? 'L' : 'M'}${pos(h.target).x ?? 0},${pos(h.target).y ?? 0}`).join(''))
+    // Segments stop at the target's rim so the arrowhead is not hidden under the node.
+    segs.attr('d', (s) => {
+      const a = pos(s.from), b = pos(s.to)
+      const ax = a.x ?? 0, ay = a.y ?? 0, bx = b.x ?? 0, by = b.y ?? 0
+      const len = Math.hypot(bx - ax, by - ay) || 1
+      const ux = (bx - ax) / len, uy = (by - ay) / len
+      return `M${ax + ux * a.r},${ay + uy * a.r}L${bx - ux * (b.r + 2)},${by - uy * (b.r + 2)}`
+    })
     dashed.attr('x1', (d) => pos(d.from).x ?? 0).attr('y1', (d) => pos(d.from).y ?? 0).attr('x2', (d) => pos(d.to).x ?? 0).attr('y2', (d) => pos(d.to).y ?? 0)
     badge.attr('transform', (m) => {
       const n = pos(m.h.target)
-      return `translate(${(n.x ?? 0) + n.r + 4 + m.k * 18},${(n.y ?? 0) - n.r - 4})`
+      return `translate(${(n.x ?? 0) + n.r * 0.7 + m.k * 18},${(n.y ?? 0) - n.r * 0.7})`
     })
   }
 }

@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getJSON, type SearchHit, type SearchResponse } from '../api'
 
 const query = defineModel<string>({ required: true })
+
+const MAX_HITS = 8
 
 const hits = ref<SearchHit[]>([])
 const miss = ref(false)
 const error = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
 let latest = 0
+const shown = computed(() => hits.value.slice(0, MAX_HITS))
 
 async function run(q: string) {
   const mine = ++latest
@@ -51,15 +54,23 @@ function onEscape(e: KeyboardEvent) {
 <template>
   <div class="side-search" role="search">
     <input v-model="query" type="search" class="side-search-input" placeholder="Search" aria-label="Search signs and entries" autocomplete="off" @keydown.esc="onEscape" />
-    <p v-if="error" class="notice error small" role="alert">{{ error }}</p>
-    <ul v-else-if="hits.length" class="side-hits" aria-label="Search results">
-      <li v-for="h in hits" :key="h.id">
-        <RouterLink class="side-hit" :to="{ name: 'entry', params: { id: h.id } }">
-          <span class="side-hit-title"><span class="disc small-disc" :class="`bg-${h.tier}`" :title="h.tier"></span>{{ h.title }}</span>
-          <span v-if="h.sign_path.length" class="muted small">{{ h.sign_path.join(' / ') }}</span>
-        </RouterLink>
-      </li>
-    </ul>
-    <p v-else-if="miss" class="muted small side-note">No search hits.</p>
+    <!-- Hits and the slotted tree share this one scroll container so they can never overlap. -->
+    <div class="side-scroll">
+      <p v-if="error" class="notice error small" role="alert">{{ error }}</p>
+      <template v-else-if="hits.length">
+        <h2 id="side-hits-h" class="side-head">Matches</h2>
+        <ul class="side-hits" aria-labelledby="side-hits-h">
+          <li v-for="h in shown" :key="h.id">
+            <RouterLink class="side-hit" :to="{ name: 'entry', params: { id: h.id } }">
+              <span class="side-hit-title"><span class="disc small-disc" :class="`bg-${h.tier}`" :title="h.tier"></span>{{ h.title }}</span>
+              <span v-if="h.sign_path.length" class="muted small">{{ h.sign_path.join(' / ') }}</span>
+            </RouterLink>
+          </li>
+          <li v-if="hits.length > MAX_HITS" class="muted small side-note">{{ hits.length - MAX_HITS }} more in search</li>
+        </ul>
+      </template>
+      <p v-else-if="miss" class="muted small side-note">No search hits.</p>
+      <slot />
+    </div>
   </div>
 </template>
