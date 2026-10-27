@@ -1,5 +1,15 @@
 import { ref, watchEffect, type Ref } from 'vue'
 
+export interface ProjectRow { id: string; title: string; entries: number; open_sessions: number; open_gaps: number }
+
+/** The project id in the page's URL, empty on the project list; the router sets it before a page mounts. */
+export const projectId = ref('')
+
+/** A data route of the current project, `path` starting with a slash. */
+export function projectApi(path: string): string {
+  return `/api/p/${encodeURIComponent(projectId.value)}${path}`
+}
+
 export type Tier = 'verified' | 'provisional' | 'stale'
 
 export interface TierCounts { verified: number; provisional: number; stale: number }

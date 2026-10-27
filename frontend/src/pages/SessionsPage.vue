@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useApi, when, type SessionRow } from '../api'
+import { useApi, when, type SessionRow, projectApi } from '../api'
 import Load from '../components/Load.vue'
 
-const { data, error, loading } = useApi<{ sessions: SessionRow[] }>(() => '/api/sessions')
+const { data, error, loading } = useApi<{ sessions: SessionRow[] }>(() => projectApi('/sessions'))
 </script>
 
 <template>

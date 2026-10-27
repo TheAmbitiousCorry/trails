@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useApi, type Snippet } from '../api'
+import { useApi, type Snippet, projectApi } from '../api'
 
 const props = defineProps<{ entryId: string; anchorId: number }>()
-const { data, error } = useApi<Snippet>(() => `/api/entries/${encodeURIComponent(props.entryId)}/snippet?anchor=${props.anchorId}`)
+const { data, error } = useApi<Snippet>(() => projectApi(`/entries/${encodeURIComponent(props.entryId)}/snippet?anchor=${props.anchorId}`))
 </script>
 
 <template>

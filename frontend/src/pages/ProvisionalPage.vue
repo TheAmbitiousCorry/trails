@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useApi, type ProvisionalRow } from '../api'
+import { useApi, type ProvisionalRow, projectApi } from '../api'
 import Load from '../components/Load.vue'
 
-const { data, error, loading } = useApi<{ entries: ProvisionalRow[] }>(() => '/api/provisional')
+const { data, error, loading } = useApi<{ entries: ProvisionalRow[] }>(() => projectApi('/provisional'))
 </script>
 
 <template>

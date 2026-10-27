@@ -22,14 +22,14 @@ const forceAfter = 3
 // registerAPI mounts the project and hook endpoints; they are plain JSON so a shell script with curl can call them.
 func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
 	mux.Handle("GET /api/projects", guard(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		out := []projectRef{}
+		out := []projectRow{}
 		for _, p := range reg.List() {
-			ref, err := refOf(r.Context(), p)
+			row, err := rowOf(r.Context(), p)
 			if err != nil {
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
-			out = append(out, ref)
+			out = append(out, row)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"projects": out})
 	})))
@@ -42,6 +42,27 @@ func registerAPI(mux *http.ServeMux, reg *project.Registry, addr string) {
 type projectRef struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+}
+
+// projectRow is a listed project with the counts the browser's project list shows.
+type projectRow struct {
+	projectRef
+	Entries      int `json:"entries"`
+	OpenSessions int `json:"open_sessions"`
+	OpenGaps     int `json:"open_gaps"`
+}
+
+func rowOf(ctx context.Context, p *project.Project) (projectRow, error) {
+	ref, err := refOf(ctx, p)
+	if err != nil {
+		return projectRow{}, err
+	}
+	row := projectRow{projectRef: ref}
+	err = p.DB().QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM entries WHERE tier != 'dormant'),
+		(SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL),
+		(SELECT COUNT(*) FROM gaps WHERE state = 'open')`).Scan(&row.Entries, &row.OpenSessions, &row.OpenGaps)
+	return row, err
 }
 
 func refOf(ctx context.Context, p *project.Project) (projectRef, error) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ApiError, postJSON, useApi, when, type EntryResponse } from '../api'
+import { ApiError, postJSON, useApi, when, type EntryResponse, projectApi } from '../api'
 import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
@@ -9,7 +9,7 @@ import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
 
 const route = useRoute()
-const { data, error, loading, reload } = useApi<EntryResponse>(() => `/api/entries/${encodeURIComponent(String(route.params.id))}`)
+const { data, error, loading, reload } = useApi<EntryResponse>(() => projectApi(`/entries/${encodeURIComponent(String(route.params.id))}`))
 
 // The verified entry is the original; the provisional one is the copy that would replace it.
 const resolutions = computed(() => {
@@ -31,7 +31,7 @@ async function supersede(r: { original: string; by: string }) {
   superseding.value = true
   supersedeError.value = ''
   try {
-    await postJSON(`/api/entries/${encodeURIComponent(r.original)}/supersede`, { by: r.by })
+    await postJSON(projectApi(`/entries/${encodeURIComponent(r.original)}/supersede`), { by: r.by })
     await invalidate()
     reload()
   } catch (e) {
@@ -59,7 +59,7 @@ async function supersede(r: { original: string; by: string }) {
         <span class="muted small">{{ data.entry.reads_30d }} reads in 30 days, updated {{ when(data.entry.updated_at) }}</span>
       </p>
       <p class="lede">{{ data.entry.read_when }}</p>
-      <p><RouterLink :to="{ path: '/graph', query: { focus: data.entry.id, depth: '1' } }">Show on graph</RouterLink></p>
+      <p><RouterLink :to="{ name: 'graph', query: { focus: data.entry.id, depth: '1' } }">Show on graph</RouterLink></p>
       <p v-if="data.entry.tags.length" class="chips"><span v-for="t in data.entry.tags" :key="t" class="chip">{{ t }}</span></p>
       <p v-if="data.decided_by" class="muted">Decided by {{ data.decided_by }} on {{ data.decided_at }}.</p>
       <p v-if="data.superseded_by" class="notice">Superseded by <RouterLink :to="{ name: 'entry', params: { id: data.superseded_by } }">{{ data.superseded_by }}</RouterLink>.</p>

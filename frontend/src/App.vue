@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { projectId } from './api'
+import { useGraph } from './graph'
 import SidebarSearch from './components/SidebarSearch.vue'
 import SidebarTree from './components/SidebarTree.vue'
 
 const links = [
-  { to: '/', label: 'Map' },
-  { to: '/graph', label: 'Graph' },
-  { to: '/sessions', label: 'Sessions' },
-  { to: '/gaps', label: 'Gaps' },
-  { to: '/provisional', label: 'Provisional' },
-  { to: '/tags', label: 'Tags' },
-  { to: '/logs', label: 'Rejections' },
+  { name: 'map', label: 'Map' },
+  { name: 'graph', label: 'Graph' },
+  { name: 'sessions', label: 'Sessions' },
+  { name: 'gaps', label: 'Gaps' },
+  { name: 'provisional', label: 'Provisional' },
+  { name: 'tags', label: 'Tags' },
+  { name: 'logs', label: 'Rejections' },
 ]
+const { title } = useGraph()
 
 const open = ref(false)
 const query = ref('')
@@ -22,10 +25,10 @@ watch(() => route.fullPath, () => { open.value = false })
 
 <template>
   <div class="shell">
-    <button type="button" class="menu-toggle" aria-controls="sidebar" :aria-expanded="open" @click="open = !open">Menu</button>
+    <button v-if="projectId" type="button" class="menu-toggle" aria-controls="sidebar" :aria-expanded="open" @click="open = !open">Menu</button>
     <button v-if="open" type="button" class="scrim open" aria-label="Close menu" tabindex="-1" @click="open = false"></button>
-    <aside id="sidebar" class="sidebar" :class="{ open }" @keydown.esc="open = false">
-      <RouterLink to="/" class="brand">Trails</RouterLink>
+    <aside v-if="projectId" id="sidebar" :key="projectId" class="sidebar" :class="{ open }" @keydown.esc="open = false">
+      <RouterLink :to="{ name: 'projects' }" class="brand">{{ title || 'Trails' }}</RouterLink>
       <SidebarSearch v-model="query">
         <nav class="side-tree-nav" aria-label="Wiki">
           <h2 v-if="query.trim()" class="side-head">In the tree</h2>
@@ -33,7 +36,7 @@ watch(() => route.fullPath, () => { open.value = false })
         </nav>
       </SidebarSearch>
       <nav class="side-nav" aria-label="Pages">
-        <RouterLink v-for="l in links" :key="l.to" :to="l.to" :exact-active-class="l.to === '/' ? 'current' : ''" :active-class="l.to === '/' ? '' : 'current'">{{ l.label }}</RouterLink>
+        <RouterLink v-for="l in links" :key="l.name" :to="{ name: l.name }" :exact-active-class="l.name === 'map' ? 'current' : ''" :active-class="l.name === 'map' ? '' : 'current'">{{ l.label }}</RouterLink>
       </nav>
     </aside>
     <main class="wrap article">

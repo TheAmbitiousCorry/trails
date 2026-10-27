@@ -1,29 +1,32 @@
 import { computed, ref } from 'vue'
-import { getJSON, type GraphEdge, type GraphNode, type GraphResponse } from './api'
+import { getJSON, projectApi, projectId, type GraphEdge, type GraphNode, type GraphResponse } from './api'
 import { buildTree, forkProngs, homeIdOf, pathIds, type Fork, type MapTreeNode } from './mapmodel'
 
 export interface TreeSign { id: string; title: string; signs: TreeSign[]; entries: GraphNode[] }
 
-// Module-level so every caller shares one fetch per app load.
+// Module-level so every caller shares one fetch per project; loadedFor is the project the nodes belong to.
 const nodes = ref<GraphNode[]>([])
 const edges = ref<GraphEdge[]>([])
 const loading = ref(false)
 const error = ref('')
-let loaded = false
+let loadedFor: string | null = null
 
 async function load() {
-  loaded = true
+  const mine = projectId.value
+  loadedFor = mine
   loading.value = true
   try {
-    const out = await getJSON<GraphResponse>('/api/graph')
+    const out = await getJSON<GraphResponse>(projectApi('/graph'))
+    if (mine !== loadedFor) return
     nodes.value = out.nodes
     edges.value = out.edges
     error.value = ''
   } catch (e) {
-    loaded = false
+    if (mine !== loadedFor) return
+    loadedFor = null
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false
+    if (mine === loadedFor || loadedFor === null) loading.value = false
   }
 }
 
@@ -70,7 +73,15 @@ export function invalidate(): Promise<void> {
   return load()
 }
 
+/** The root sign's title, which names the project; empty until the graph loads. */
+const title = computed(() => nodes.value.find((n) => n.type === 'sign' && !n.parent)?.title ?? '')
+
 export function useGraph() {
-  if (!loaded) void load()
-  return { nodes, edges, loading, error, tree: signTree }
+  // A project other than the one loaded drops the old nodes first, so its sidebar never shows another project's signs.
+  if (projectId.value && loadedFor !== projectId.value) {
+    nodes.value = []
+    edges.value = []
+    void load()
+  }
+  return { nodes, edges, loading, error, tree: signTree, title }
 }

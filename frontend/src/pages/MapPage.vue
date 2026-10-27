@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useApi, type MapNode, type MapResponse } from '../api'
+import { useApi, type MapNode, type MapResponse, projectApi } from '../api'
 import Load from '../components/Load.vue'
 import MapNodeRow from '../components/MapNode.vue'
 
@@ -15,7 +15,7 @@ const { data, error, loading } = useApi<MapResponse>(() => {
   const q = new URLSearchParams()
   if (tag.value) q.set('tag', tag.value)
   if (within.value) q.set('within', within.value)
-  return `/api/map${q.size ? `?${q}` : ''}`
+  return projectApi(`/map${q.size ? `?${q}` : ''}`)
 })
 
 function setQuery(key: 'tag' | 'within', value: string) {

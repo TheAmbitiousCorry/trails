@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useApi, type TagRow } from '../api'
+import { useApi, type TagRow, projectApi } from '../api'
 import Load from '../components/Load.vue'
 
-const { data, error, loading } = useApi<{ tags: TagRow[] }>(() => '/api/tags')
+const { data, error, loading } = useApi<{ tags: TagRow[] }>(() => projectApi('/tags'))
 </script>
 
 <template>

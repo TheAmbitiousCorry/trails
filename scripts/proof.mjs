@@ -21,8 +21,14 @@ const getJSON = async (path) => {
   return r.json()
 }
 
-const graph = await getJSON('/api/graph')
-const sessions = (await getJSON('/api/sessions')).sessions || []
+// PROJECT names the project whose pages are captured; the project list is captured whatever it is.
+const project = process.env.PROJECT || (await getJSON('/api/projects')).projects[0]?.id
+if (!project) throw new Error('the server at ' + addr + ' holds no project')
+const api = `/api/p/${encodeURIComponent(project)}`
+const at = (path) => `/p/${encodeURIComponent(project)}${path === '/' ? '' : path}`
+
+const graph = await getJSON(`${api}/graph`)
+const sessions = (await getJSON(`${api}/sessions`)).sessions || []
 const sign = graph.nodes.find((n) => n.type === 'sign' && n.id !== 'root') || graph.nodes.find((n) => n.type === 'sign')
 const entry = graph.nodes.find((n) => n.type === 'entry')
 const session = sessions[0]
@@ -36,26 +42,27 @@ const conflict = graph.edges.filter((e) => e.relation === 'conflicts_with')
 const busiest = sessions.reduce((a, b) => (total(b) > total(a) ? b : a), sessions[0])
 
 const shots = [
-  ['map', '/'],
-  ['graph-ridge', '/graph', 'ridge'],
-  ['graph-topo', '/graph', 'topo'],
-  ['graph-cluster', '/graph', 'cluster'],
-  sign && ['graph-local', `/graph?focus=${encodeURIComponent(sign.id)}`, 'ridge'],
-  session && ['session-trail', `/sessions/${encodeURIComponent(session.id)}`],
-  busiest && ['session-replay-mid', `/sessions/${encodeURIComponent(busiest.id)}`, 'replay-mid'],
-  busiest && ['session-replay-end', `/sessions/${encodeURIComponent(busiest.id)}`, 'replay-end'],
-  busiest && ['session-replay-keys', `/sessions/${encodeURIComponent(busiest.id)}`, 'replay-keys'],
-  sign && ['sign-form', `/signs/${encodeURIComponent(sign.id)}`, 'form'],
-  sign && ['sign-refusal', `/signs/${encodeURIComponent(sign.id)}`, 'refusal'],
-  entry && ['entry', `/entries/${encodeURIComponent(entry.id)}`],
-  conflict && ['entry-conflict-original', `/entries/${encodeURIComponent(conflict.original)}`, 'supersede'],
-  conflict && ['entry-conflict-copy', `/entries/${encodeURIComponent(conflict.copy)}`, 'supersede'],
-  ['sessions', '/sessions'],
-  ['gaps', '/gaps'],
-  ['provisional', '/provisional'],
-  ['tags', '/tags'],
-  ['logs', '/logs'],
-  ['menu', '/', 'menu'],
+  ['projects', '/'],
+  ['map', at('/')],
+  ['graph-ridge', at('/graph'), 'ridge'],
+  ['graph-topo', at('/graph'), 'topo'],
+  ['graph-cluster', at('/graph'), 'cluster'],
+  sign && ['graph-local', at(`/graph?focus=${encodeURIComponent(sign.id)}`), 'ridge'],
+  session && ['session-trail', at(`/sessions/${encodeURIComponent(session.id)}`)],
+  busiest && ['session-replay-mid', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-mid'],
+  busiest && ['session-replay-end', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-end'],
+  busiest && ['session-replay-keys', at(`/sessions/${encodeURIComponent(busiest.id)}`), 'replay-keys'],
+  sign && ['sign-form', at(`/signs/${encodeURIComponent(sign.id)}`), 'form'],
+  sign && ['sign-refusal', at(`/signs/${encodeURIComponent(sign.id)}`), 'refusal'],
+  entry && ['entry', at(`/entries/${encodeURIComponent(entry.id)}`)],
+  conflict && ['entry-conflict-original', at(`/entries/${encodeURIComponent(conflict.original)}`), 'supersede'],
+  conflict && ['entry-conflict-copy', at(`/entries/${encodeURIComponent(conflict.copy)}`), 'supersede'],
+  ['sessions', at('/sessions')],
+  ['gaps', at('/gaps')],
+  ['provisional', at('/provisional')],
+  ['tags', at('/tags')],
+  ['logs', at('/logs')],
+  ['menu', at('/'), 'menu'],
 ].filter(Boolean)
 
 // Returns the first pair of visible labels whose boxes intersect, or null.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError, postJSON, useApi, type Edge, type SignResponse } from '../api'
+import { ApiError, postJSON, useApi, type Edge, type SignResponse, projectApi } from '../api'
 import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
@@ -10,7 +10,7 @@ import TierBadge from '../components/TierBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { data, error, loading } = useApi<SignResponse>(() => `/api/signs/${encodeURIComponent(String(route.params.id))}`)
+const { data, error, loading } = useApi<SignResponse>(() => projectApi(`/signs/${encodeURIComponent(String(route.params.id))}`))
 
 const newTitle = ref('')
 const moveIds = ref<string[]>([])
@@ -35,7 +35,7 @@ async function createSign() {
   creating.value = true
   createError.value = null
   try {
-    const out = await postJSON<{ sign_id: string }>('/api/signs', { parent_id: String(route.params.id), title: newTitle.value, move: moveIds.value })
+    const out = await postJSON<{ sign_id: string }>(projectApi('/signs'), { parent_id: String(route.params.id), title: newTitle.value, move: moveIds.value })
     await invalidate()
     await router.push({ name: 'sign', params: { id: out.sign_id } })
   } catch (e) {
@@ -65,7 +65,7 @@ function edgeCounts(e: Edge): string {
       </nav>
       <h1>{{ data.view.title }}</h1>
       <p class="lede">{{ data.view.summary }}</p>
-      <p><RouterLink :to="{ path: '/graph', query: { focus: data.view.sign_id, depth: '1' } }">Show on graph</RouterLink></p>
+      <p><RouterLink :to="{ name: 'graph', query: { focus: data.view.sign_id, depth: '1' } }">Show on graph</RouterLink></p>
       <p class="badges">
         <span v-if="data.stale" class="chip chip-stale">{{ data.stale }} stale below</span>
         <span v-if="data.open_gaps" class="chip chip-gap">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useApi, when, type Gap } from '../api'
+import { useApi, when, type Gap, projectApi } from '../api'
 import Load from '../components/Load.vue'
 
-const { data, error, loading } = useApi<{ gaps: Gap[] }>(() => '/api/gaps?state=open')
+const { data, error, loading } = useApi<{ gaps: Gap[] }>(() => projectApi('/gaps?state=open'))
 </script>
 
 <template>

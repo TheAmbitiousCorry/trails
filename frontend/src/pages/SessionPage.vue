@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { hopVerb, useApi, when, type EntryResponse, type GraphResponse, type RouteStep, type SessionResponse } from '../api'
+import { hopVerb, useApi, when, type EntryResponse, type GraphResponse, type RouteStep, type SessionResponse, projectApi } from '../api'
 import LayoutSwitch from '../components/LayoutSwitch.vue'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
@@ -14,8 +14,8 @@ const HOP_MS = 650
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => encodeURIComponent(String(route.params.id)))
-const { data, error, loading } = useApi<SessionResponse>(() => `/api/sessions/${id.value}`)
-const walk = useApi<GraphResponse>(() => `/api/graph?session=${id.value}`)
+const { data, error, loading } = useApi<SessionResponse>(() => projectApi(`/sessions/${id.value}`))
+const walk = useApi<GraphResponse>(() => projectApi(`/graph?session=${id.value}`))
 const { layout, choose } = useLayout()
 
 const how = computed(() => {
@@ -71,7 +71,7 @@ onBeforeUnmount(stop)
 
 const step = computed<RouteStep | undefined>(() => (at.value > 0 ? data.value?.route[at.value - 1] : undefined))
 const entryId = computed(() => (step.value?.kind === 'entry' ? step.value.target : null))
-const entry = useApi<EntryResponse>(() => (entryId.value ? `/api/entries/${encodeURIComponent(entryId.value)}` : null))
+const entry = useApi<EntryResponse>(() => (entryId.value ? projectApi(`/entries/${encodeURIComponent(entryId.value)}`) : null))
 const entryNow = computed(() => (entryId.value && entry.data.value?.entry.id === entryId.value ? entry.data.value : null))
 const firstParagraph = computed(() => (entryNow.value?.entry.body_markdown ?? '').split(/\n\s*\n/).find((p) => p.trim()) ?? '')
 
@@ -84,7 +84,7 @@ const open = (nodeId: string) => {
 <template>
   <Load :ready="!!data" :loading="loading" :error="error">
     <template v-if="data">
-      <p class="crumbs"><RouterLink to="/sessions">Sessions</RouterLink></p>
+      <p class="crumbs"><RouterLink :to="{ name: 'sessions' }">Sessions</RouterLink></p>
       <h1 class="task">{{ data.session.task }}</h1>
       <p class="muted">
         {{ data.session.actor }}, {{ data.session.task_type }}, started {{ when(data.session.started_at) }},
@@ -149,7 +149,7 @@ const open = (nodeId: string) => {
                 <p class="badges">
                   <span v-if="s.turn_back" class="chip chip-turn">turned back</span>
                   <span v-if="s.miss" class="chip chip-stale">miss</span>
-                  <RouterLink v-if="s.miss && s.gap_id" class="chip chip-gap" to="/gaps">gap {{ s.gap_id }}</RouterLink>
+                  <RouterLink v-if="s.miss && s.gap_id" class="chip chip-gap" :to="{ name: 'gaps' }">gap {{ s.gap_id }}</RouterLink>
                   <span v-if="s.result.startsWith('refused')" class="chip chip-stale">{{ s.result }}</span>
                   <template v-if="s.touched"><span v-for="h in how.get(s.target)" :key="h" class="chip chip-touched">{{ h }} by this session</span></template>
                   <span class="muted small">{{ when(s.at) }}</span>

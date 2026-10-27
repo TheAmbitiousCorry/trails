@@ -57,6 +57,10 @@ func TestRegisterOverHTTP(t *testing.T) {
 	if len(list.Projects) != 1 || list.Projects[0]["id"] != id || list.Projects[0]["title"] != filepath.Base(repo) {
 		t.Fatalf("list = %v", list.Projects)
 	}
+	// A fresh project holds its seeded entry and no session or gap.
+	if list.Projects[0]["entries"] != 1.0 || list.Projects[0]["open_sessions"] != 0.0 || list.Projects[0]["open_gaps"] != 0.0 {
+		t.Fatalf("counts = %v", list.Projects[0])
+	}
 }
 
 func TestRegisterNeverCreatesTheID(t *testing.T) {

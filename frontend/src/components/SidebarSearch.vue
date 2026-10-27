@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getJSON, type SearchHit, type SearchResponse } from '../api'
+import { getJSON, type SearchHit, type SearchResponse, projectApi } from '../api'
 
 const query = defineModel<string>({ required: true })
 
@@ -16,7 +16,7 @@ const shown = computed(() => hits.value.slice(0, MAX_HITS))
 async function run(q: string) {
   const mine = ++latest
   try {
-    const out = await getJSON<SearchResponse>(`/api/search?q=${encodeURIComponent(q)}`)
+    const out = await getJSON<SearchResponse>(projectApi(`/search?q=${encodeURIComponent(q)}`))
     if (mine !== latest) return
     hits.value = out.hits
     miss.value = out.hits.length === 0

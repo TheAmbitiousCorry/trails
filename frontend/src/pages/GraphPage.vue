@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useApi, type GraphResponse } from '../api'
+import { useApi, type GraphResponse, projectApi } from '../api'
 import { homeOf, useGraph } from '../graph'
 import { useLayout } from '../layoutChoice'
 import LayoutSwitch from '../components/LayoutSwitch.vue'
@@ -26,7 +26,7 @@ function setQuery(key: string, value: string) {
 }
 
 // A tag keeps the entries carrying it and the signs above them; the server does the filtering.
-const filtered = useApi<GraphResponse>(() => (tag.value ? `/api/graph?tag=${encodeURIComponent(tag.value)}` : null))
+const filtered = useApi<GraphResponse>(() => (tag.value ? projectApi(`/graph?tag=${encodeURIComponent(tag.value)}`) : null))
 const data = computed(() => (tag.value ? (filtered.data.value ?? undefined) : undefined))
 const ready = computed(() => (tag.value ? !!filtered.data.value : global.nodes.value.length > 0))
 const loading = computed(() => (tag.value ? filtered.loading.value : global.loading.value))
@@ -55,7 +55,7 @@ const open = (id: string) => {
         <option v-for="t in tags" :key="t" :value="t">{{ t }}</option>
       </select>
     </label>
-    <RouterLink v-if="focus" :to="{ path: '/graph', query: tag ? { tag } : {} }" class="whole-map">Whole map</RouterLink>
+    <RouterLink v-if="focus" :to="{ name: 'graph', query: tag ? { tag } : {} }" class="whole-map">Whole map</RouterLink>
   </div>
   <p class="legend" aria-label="Legend">
     <span class="lg"><svg width="14" height="14" aria-hidden="true"><rect x="1" y="1" width="12" height="12" rx="3" class="lg-sign" /></svg>sign, coloured by trail</span>

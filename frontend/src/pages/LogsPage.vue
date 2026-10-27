@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useApi, when, type Gap, type Rejections } from '../api'
+import { useApi, when, type Gap, type Rejections, projectApi } from '../api'
 import Load from '../components/Load.vue'
 
-const rej = useApi<Rejections>(() => '/api/rejections')
-const dis = useApi<{ dismissals: Gap[] }>(() => '/api/dismissals')
+const rej = useApi<Rejections>(() => projectApi('/rejections'))
+const dis = useApi<{ dismissals: Gap[] }>(() => projectApi('/dismissals'))
 </script>
 
 <template>
