@@ -180,6 +180,10 @@ export interface Rejections {
   recent: { at: string; tool: string; target: string; rule: string; actor_kind: string; session_id: string }[]
 }
 
+export interface SearchHit { id: string; title: string; read_when: string; tier: Tier; kind: string; sign_path: string[] }
+
+export interface SearchResponse { q: string; hits: SearchHit[]; miss: boolean }
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)

@@ -187,3 +187,11 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
   h1 { font-size: 1.4rem; }
   .node-row .badges { margin-left: 2.2rem; width: 100%; }
 }
+
+.side-search { flex: none; margin-bottom: 0.6rem; }
+.side-search-input { box-sizing: border-box; width: 100%; font: inherit; padding: 0.4rem 0.55rem; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+.side-hits { list-style: none; margin: 0.4rem 0 0; padding: 0; max-height: 40vh; overflow-y: auto; border-bottom: 1px solid var(--line); }
+.side-hit { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.3rem 0.4rem; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.92rem; }
+.side-hit:hover { background: var(--code-bg); }
+.side-hit-title { display: flex; align-items: center; gap: 0.35rem; overflow-wrap: anywhere; }
+.twist:disabled { cursor: default; }
