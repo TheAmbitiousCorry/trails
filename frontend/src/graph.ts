@@ -1,23 +1,7 @@
 import { computed, ref } from 'vue'
-import { getJSON, type Tier } from './api'
-
-export interface GraphNode {
-  type: 'sign' | 'entry'
-  id: string
-  title: string
-  parent?: string
-  kind?: string
-  tier?: Tier
-  reads_30d?: number
-  sign_id?: string
-  tags?: string[]
-}
-
-export interface GraphEdge { from: string; to: string; relation: string }
+import { getJSON, type GraphEdge, type GraphNode, type GraphResponse } from './api'
 
 export interface TreeSign { id: string; title: string; signs: TreeSign[]; entries: GraphNode[] }
-
-interface GraphResponse { nodes: GraphNode[]; edges: GraphEdge[] }
 
 // Module-level so every caller shares one fetch per app load.
 const nodes = ref<GraphNode[]>([])

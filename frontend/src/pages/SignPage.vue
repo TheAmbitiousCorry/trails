@@ -29,6 +29,7 @@ function edgeCounts(e: Edge): string {
       </nav>
       <h1>{{ data.view.title }}</h1>
       <p class="lede">{{ data.view.summary }}</p>
+      <p><RouterLink :to="{ path: '/graph', query: { focus: data.view.sign_id, depth: '1' } }">Show on graph</RouterLink></p>
       <p class="badges">
         <span v-if="data.stale" class="pill pill-stale">{{ data.stale }} stale below</span>
         <span v-if="data.open_gaps" class="pill pill-gap">{{ data.open_gaps }} open {{ data.open_gaps === 1 ? 'gap' : 'gaps' }}</span>

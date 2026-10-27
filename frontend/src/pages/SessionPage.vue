@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useApi, when, type RouteStep, type SessionResponse } from '../api'
+import { hopVerb, useApi, when, type RouteStep, type SessionResponse } from '../api'
 import Load from '../components/Load.vue'
 import TierBadge from '../components/TierBadge.vue'
 
@@ -14,14 +14,8 @@ const how = computed(() => {
   return m
 })
 
-const verbs: Record<string, string> = {
-  look: 'looked at', search: 'searched', read: 'read', write: 'wrote under', confirm: 'confirmed',
-  resolve_gap: 'resolved gap', session_end: 'ended the session',
-}
-
 function verb(s: RouteStep): string {
-  if (s.tool === 'read' && s.depth) return `read (${s.depth})`
-  return verbs[s.tool] ?? s.tool
+  return hopVerb(s.tool, s.depth)
 }
 </script>
 
@@ -30,6 +24,7 @@ function verb(s: RouteStep): string {
     <template v-if="data">
       <p class="crumbs"><RouterLink to="/sessions">Sessions</RouterLink></p>
       <h1 class="task">{{ data.session.task }}</h1>
+      <p><RouterLink :to="{ path: '/graph', query: { session: data.session.id } }">Show route on graph</RouterLink></p>
       <p class="muted">
         {{ data.session.actor }}, {{ data.session.task_type }}, started {{ when(data.session.started_at) }},
         <template v-if="data.session.ended_by">ended by {{ data.session.ended_by }}</template><template v-else>still open</template>

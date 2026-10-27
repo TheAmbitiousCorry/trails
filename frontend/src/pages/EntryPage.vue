@@ -27,6 +27,7 @@ const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${enc
         <span class="muted small">{{ data.entry.reads_30d }} reads in 30 days, updated {{ when(data.entry.updated_at) }}</span>
       </p>
       <p class="lede">{{ data.entry.read_when }}</p>
+      <p><RouterLink :to="{ path: '/graph', query: { focus: data.entry.id, depth: '1' } }">Show on graph</RouterLink></p>
       <p v-if="data.entry.tags.length" class="chips"><span v-for="t in data.entry.tags" :key="t" class="chip">{{ t }}</span></p>
       <p v-if="data.decided_by" class="muted">Decided by {{ data.decided_by }} on {{ data.decided_at }}.</p>
       <p v-if="data.superseded_by" class="notice">Superseded by <RouterLink :to="{ name: 'entry', params: { id: data.superseded_by } }">{{ data.superseded_by }}</RouterLink>.</p>

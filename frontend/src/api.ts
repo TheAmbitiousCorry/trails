@@ -184,6 +184,48 @@ export interface SearchHit { id: string; title: string; read_when: string; tier:
 
 export interface SearchResponse { q: string; hits: SearchHit[]; miss: boolean }
 
+export interface GraphNode {
+  type: 'sign' | 'entry'
+  id: string
+  title: string
+  parent?: string
+  kind?: string
+  tier?: Tier
+  reads_30d?: number
+  sign_id?: string
+  tags?: string[]
+}
+
+export interface GraphEdge { from: string; to: string; relation: string }
+
+export interface GraphHop {
+  n: number
+  tool: string
+  target: string
+  kind: 'sign' | 'entry' | 'query'
+  result: string
+  miss: boolean
+  turn_back: boolean
+  prerequisites: string[]
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  route: GraphHop[] | null
+  session?: { id: string; task: string; actor: string; started_at: string; ended_at: string; ended_by: string }
+}
+
+const verbs: Record<string, string> = {
+  look: 'looked at', search: 'searched', read: 'read', write: 'wrote under', confirm: 'confirmed',
+  resolve_gap: 'resolved gap', session_end: 'ended the session',
+}
+
+export function hopVerb(tool: string, depth?: string): string {
+  if (tool === 'read' && depth) return `read (${depth})`
+  return verbs[tool] ?? tool
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
