@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/entries"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
@@ -52,4 +53,39 @@ func (a *api) createSign(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return createSignOut{SignID: c.SignID, Title: c.Title, Moved: c.Moved}, nil
+}
+
+type supersedeIn struct {
+	By string `json:"by"`
+}
+
+// supersede is the browser's resolution of a conflicting pair, logged under session id 'user' like createSign.
+func (a *api) supersede(r *http.Request) (any, error) {
+	var in supersedeIn
+	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20)).Decode(&in); err != nil || in.By == "" {
+		return nil, badRequest("body must be JSON with by")
+	}
+	id := r.PathValue("id")
+	err := entries.Supersede(r.Context(), a.st.DB, id, in.By)
+	result := "ok"
+	switch {
+	case errors.Is(err, entries.ErrUnknownEntry):
+		result = "refused:unknown_entry"
+	case errors.Is(err, entries.ErrNotConflicting):
+		result = "refused:not_conflicting"
+	case err != nil:
+		result = "error"
+	}
+	if _, lerr := a.st.DB.ExecContext(r.Context(), `INSERT INTO events (session_id, at, tool, target, result) VALUES ('user', ?, 'supersede', ?, ?)`, store.Now(), id, result); lerr != nil && err == nil {
+		return nil, lerr
+	}
+	switch {
+	case errors.Is(err, entries.ErrUnknownEntry):
+		return nil, notFound(err.Error())
+	case errors.Is(err, entries.ErrNotConflicting):
+		return nil, badRequest(err.Error())
+	case err != nil:
+		return nil, err
+	}
+	return map[string]string{"entry_id": id, "superseded_by": in.By}, nil
 }

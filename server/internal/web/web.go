@@ -50,20 +50,21 @@ func handle(fn func(*http.Request) (any, error)) http.Handler {
 func Register(mux *http.ServeMux, st *store.Store, guard func(http.Handler) http.Handler) {
 	a := &api{st: st}
 	routes := map[string]func(*http.Request) (any, error){
-		"GET /api/map":                  a.siteMap,
-		"GET /api/search":               a.search,
-		"GET /api/graph":                a.graph,
-		"GET /api/signs/{id}":           a.sign,
-		"GET /api/entries/{id}":         a.entry,
-		"GET /api/entries/{id}/snippet": a.snippet,
-		"GET /api/sessions":             a.sessions,
-		"GET /api/sessions/{id}":        a.session,
-		"GET /api/gaps":                 a.gaps,
-		"GET /api/provisional":          a.provisional,
-		"GET /api/tags":                 a.tags,
-		"GET /api/rejections":           a.rejections,
-		"GET /api/dismissals":           a.dismissals,
-		"POST /api/signs":               a.createSign,
+		"GET /api/map":                     a.siteMap,
+		"GET /api/search":                  a.search,
+		"GET /api/graph":                   a.graph,
+		"GET /api/signs/{id}":              a.sign,
+		"GET /api/entries/{id}":            a.entry,
+		"GET /api/entries/{id}/snippet":    a.snippet,
+		"GET /api/sessions":                a.sessions,
+		"GET /api/sessions/{id}":           a.session,
+		"GET /api/gaps":                    a.gaps,
+		"GET /api/provisional":             a.provisional,
+		"GET /api/tags":                    a.tags,
+		"GET /api/rejections":              a.rejections,
+		"GET /api/dismissals":              a.dismissals,
+		"POST /api/signs":                  a.createSign,
+		"POST /api/entries/{id}/supersede": a.supersede,
 	}
 	for pattern, fn := range routes {
 		mux.Handle(pattern, guard(handle(fn)))

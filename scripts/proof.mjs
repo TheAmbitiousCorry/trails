@@ -26,6 +26,12 @@ const sessions = (await getJSON('/api/sessions')).sessions || []
 const sign = graph.nodes.find((n) => n.type === 'sign' && n.id !== 'root') || graph.nodes.find((n) => n.type === 'sign')
 const entry = graph.nodes.find((n) => n.type === 'entry')
 const session = sessions[0]
+// An unresolved conflicting pair: a verified original and the provisional copy an agent stored beside it. A server holding none skips the two shots.
+const tierOf = (id) => graph.nodes.find((n) => n.id === id)?.tier
+const conflict = graph.edges.filter((e) => e.relation === 'conflicts_with')
+  .map((e) => ({ a: e.from, b: e.to }))
+  .map(({ a, b }) => (tierOf(a) === 'verified' && tierOf(b) === 'provisional' ? { original: a, copy: b } : tierOf(b) === 'verified' && tierOf(a) === 'provisional' ? { original: b, copy: a } : null))
+  .find(Boolean)
 // The replay shots want the longest walk, so the scrubber has hops to move through.
 const busiest = sessions.reduce((a, b) => (total(b) > total(a) ? b : a), sessions[0])
 
@@ -42,6 +48,8 @@ const shots = [
   sign && ['sign-form', `/signs/${encodeURIComponent(sign.id)}`, 'form'],
   sign && ['sign-refusal', `/signs/${encodeURIComponent(sign.id)}`, 'refusal'],
   entry && ['entry', `/entries/${encodeURIComponent(entry.id)}`],
+  conflict && ['entry-conflict-original', `/entries/${encodeURIComponent(conflict.original)}`, 'supersede'],
+  conflict && ['entry-conflict-copy', `/entries/${encodeURIComponent(conflict.copy)}`, 'supersede'],
   ['sessions', '/sessions'],
   ['gaps', '/gaps'],
   ['provisional', '/provisional'],
@@ -175,6 +183,11 @@ for (const width of widths) {
           await page.waitForTimeout(300)
         }
         await page.locator('.replay').scrollIntoViewIfNeeded()
+      }
+      if (mode === 'supersede') {
+        const button = page.getByRole('button', { name: /^Supersede / })
+        if ((await button.count()) !== 1) problems.push(`${tag}: expected one Supersede button, found ${await button.count()}`)
+        else await button.scrollIntoViewIfNeeded()
       }
       if (mode === 'menu') {
         await page.getByRole('button', { name: 'Menu' }).click()

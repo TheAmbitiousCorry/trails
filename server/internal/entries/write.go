@@ -213,12 +213,50 @@ func (w *writer) mergeAlias(ctx context.Context) (WriteResult, error) {
 
 // markSuperseded links the new entry over the hit and retires the hit from default search.
 func (w *writer) markSuperseded(ctx context.Context, tx *sql.Tx, newID string) error {
-	old := w.supersede.EntryID
+	return retire(ctx, tx, w.supersede.EntryID, newID)
+}
+
+func retire(ctx context.Context, tx *sql.Tx, old, newID string) error {
 	if err := addLink(ctx, tx, newID, old, "supersedes"); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant' WHERE id = ?`, newID, old)
 	return err
+}
+
+var (
+	ErrUnknownEntry   = errors.New("unknown entry")
+	ErrNotConflicting = errors.New("the two entries are not linked by conflicts_with")
+)
+
+// Supersede is the human resolution of a conflicting pair: old goes dormant in favour of by, and by keeps its tier.
+func Supersede(ctx context.Context, db *sql.DB, old, by string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(DISTINCT id) FROM entries WHERE id IN (?, ?)`, old, by).Scan(&n); err != nil {
+		return err
+	}
+	if n != len(map[string]bool{old: true, by: true}) {
+		return ErrUnknownEntry
+	}
+	lo, hi := old, by
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM links WHERE from_id = ? AND to_id = ? AND relation = 'conflicts_with'`, lo, hi).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotConflicting
+	}
+	if err := retire(ctx, tx, old, by); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // logScores appends the write's measured scores as an events row of its own beside the recorder's write event.

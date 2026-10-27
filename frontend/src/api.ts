@@ -244,15 +244,17 @@ export async function postJSON<T>(url: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export interface Loaded<T> { data: Ref<T | null>; error: Ref<string>; loading: Ref<boolean> }
+export interface Loaded<T> { data: Ref<T | null>; error: Ref<string>; loading: Ref<boolean>; reload: () => void }
 
 /** Fetches whenever the url changes; a null url means wait. A late reply for a stale url is dropped. */
 export function useApi<T>(url: () => string | null): Loaded<T> {
   const data = ref<T | null>(null) as Ref<T | null>
   const error = ref('')
   const loading = ref(true)
+  const again = ref(0)
   let latest = 0
   watchEffect(async () => {
+    again.value
     const u = url()
     if (u === null) return
     const mine = ++latest
@@ -270,7 +272,7 @@ export function useApi<T>(url: () => string | null): Loaded<T> {
       if (mine === latest) loading.value = false
     }
   })
-  return { data, error, loading }
+  return { data, error, loading, reload: () => { again.value++ } }
 }
 
 export function when(iso: string): string {

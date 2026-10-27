@@ -1,13 +1,45 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useApi, when, type EntryResponse } from '../api'
+import { ApiError, postJSON, useApi, when, type EntryResponse } from '../api'
+import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
 import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
 
 const route = useRoute()
-const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${encodeURIComponent(String(route.params.id))}`)
+const { data, error, loading, reload } = useApi<EntryResponse>(() => `/api/entries/${encodeURIComponent(String(route.params.id))}`)
+
+// The verified entry is the original; the provisional one is the copy that would replace it.
+const resolutions = computed(() => {
+  const d = data.value
+  if (!d) return new Map<string, { original: string; by: string; label: string }>()
+  const out = new Map<string, { original: string; by: string; label: string }>()
+  for (const l of d.links) {
+    if (l.relation !== 'conflicts_with' || d.superseded_by || (l.tier as string) === 'dormant') continue
+    if (d.entry.tier === 'verified' && l.tier === 'provisional') out.set(l.id, { original: d.entry.id, by: l.id, label: `Supersede with ${l.title}` })
+    else if (d.entry.tier === 'provisional' && l.tier === 'verified') out.set(l.id, { original: l.id, by: d.entry.id, label: `Supersede ${l.title}` })
+  }
+  return out
+})
+const superseding = ref(false)
+const supersedeError = ref('')
+
+async function supersede(r: { original: string; by: string }) {
+  if (superseding.value) return
+  superseding.value = true
+  supersedeError.value = ''
+  try {
+    await postJSON(`/api/entries/${encodeURIComponent(r.original)}/supersede`, { by: r.by })
+    await invalidate()
+    reload()
+  } catch (e) {
+    supersedeError.value = e instanceof ApiError && e.status === 404 ? 'One of these entries no longer exists.' : e instanceof Error ? e.message : String(e)
+  } finally {
+    superseding.value = false
+  }
+}
 </script>
 
 <template>
@@ -50,9 +82,10 @@ const { data, error, loading } = useApi<EntryResponse>(() => `/api/entries/${enc
       <section v-if="data.links.length || data.backlinks.length" aria-labelledby="links">
         <h2 id="links">Links</h2>
         <ul class="plain">
-          <li v-for="l in data.links" :key="`l${l.relation}${l.id}`"><span class="chip chip-kind">{{ l.relation }}</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
+          <li v-for="l in data.links" :key="`l${l.relation}${l.id}`"><span class="chip chip-kind">{{ l.relation }}</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /> <button v-if="resolutions.get(l.id) && l.relation === 'conflicts_with'" type="button" class="supersede" :disabled="superseding" @click="supersede(resolutions.get(l.id)!)">{{ resolutions.get(l.id)!.label }}</button></li>
           <li v-for="l in data.backlinks" :key="`b${l.relation}${l.id}`"><span class="chip chip-kind">{{ l.relation }} this</span> <RouterLink :to="{ name: 'entry', params: { id: l.id } }">{{ l.title }}</RouterLink> <TierBadge :tier="l.tier" /></li>
         </ul>
+        <p v-if="supersedeError" class="notice error" role="alert">{{ supersedeError }}</p>
       </section>
 
       <section aria-labelledby="versions">

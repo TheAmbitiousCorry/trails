@@ -502,3 +502,42 @@ func TestCreateSignFromTheBrowser(t *testing.T) {
 		t.Errorf("refused events: %d", refused)
 	}
 }
+
+func TestSupersedeFromTheBrowser(t *testing.T) {
+	f := seed(t)
+	if _, err := f.st.DB.Exec(`UPDATE entries SET tier = 'verified' WHERE id = 'invoices-round-to-cents'`); err != nil {
+		t.Fatal(err)
+	}
+	c := newAgent(t, f.addr, "change the rounding rule", "rt-conflict")
+	c.call("write", map[string]any{"entry_id": "invoices-round-to-cents", "body": "Amounts round half to even."})
+	var copyID string
+	if err := f.st.DB.QueryRow(`SELECT CASE WHEN from_id = 'invoices-round-to-cents' THEN to_id ELSE from_id END FROM links WHERE relation = 'conflicts_with'`).Scan(&copyID); err != nil {
+		t.Fatalf("no conflicting copy: %v", err)
+	}
+
+	if code, body := f.post("/api/entries/round-helper/supersede", map[string]any{"by": copyID}); code != 400 {
+		t.Errorf("unlinked pair: %d %q", code, body)
+	}
+	if code, _ := f.post("/api/entries/nope/supersede", map[string]any{"by": copyID}); code != 404 {
+		t.Errorf("unknown original: %d", code)
+	}
+	if code, _ := f.post("/api/entries/invoices-round-to-cents/supersede", map[string]any{"by": "nope"}); code != 404 {
+		t.Errorf("unknown copy: %d", code)
+	}
+	code, body := f.post("/api/entries/invoices-round-to-cents/supersede", map[string]any{"by": copyID})
+	if code != 200 {
+		t.Fatalf("supersede: %d %s", code, body)
+	}
+	var orig, copyTier, by string
+	f.st.DB.QueryRow(`SELECT tier, COALESCE(superseded_by, '') FROM entries WHERE id = 'invoices-round-to-cents'`).Scan(&orig, &by)
+	f.st.DB.QueryRow(`SELECT tier FROM entries WHERE id = ?`, copyID).Scan(&copyTier)
+	if orig != "dormant" || by != copyID || copyTier != "provisional" {
+		t.Errorf("original %q superseded by %q, copy %q", orig, by, copyTier)
+	}
+	var links, ev int
+	f.st.DB.QueryRow(`SELECT COUNT(*) FROM links WHERE relation = 'supersedes' AND from_id = ? AND to_id = 'invoices-round-to-cents'`, copyID).Scan(&links)
+	f.st.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'user' AND tool = 'supersede' AND result = 'ok'`).Scan(&ev)
+	if links != 1 || ev != 1 {
+		t.Errorf("supersedes links %d, events %d", links, ev)
+	}
+}
