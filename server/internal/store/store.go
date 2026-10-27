@@ -59,6 +59,10 @@ func Open(home, repo string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.ApplyMap(repo); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := search.Reindex(context.Background(), db); err != nil {
 		db.Close()
 		return nil, err

@@ -20,7 +20,7 @@ To start the server for the repo in your current directory:
 cd server && go run ./cmd/trails --repo /path/to/your/project
 ```
 
-The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Commit the id file; the database stays on your machine.
+The first run writes a `.trail/id` file into the project and creates `~/.trail/<id>/trail.db`. Commit the id file; the database stays on your machine. A committed `.trail/map.md` can declare the sign tree and tag vocabulary, and the server applies it on every start.
 
 With the server running, open its pages from a terminal:
 
