@@ -21,10 +21,13 @@ import (
 
 const fallbackAddr = "127.0.0.1:7777"
 
-// defaultAddr is the server address when --addr is not given: $TRAILS_ADDR, else fallbackAddr.
+// defaultAddr is the server address when --addr is not given: $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT when set, else fallbackAddr.
 func defaultAddr() string {
 	if a := os.Getenv("TRAILS_ADDR"); a != "" {
 		return a
+	}
+	if p := os.Getenv("TRAILS_PORT"); p != "" {
+		return "127.0.0.1:" + p
 	}
 	return fallbackAddr
 }
@@ -126,7 +129,7 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	target, rest := splitTarget(args)
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "repository whose project to open (default the working directory)")
 	if err := fs.Parse(rest); err != nil {
 		return 2
@@ -189,7 +192,7 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "show only the project of this repository")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -240,7 +243,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 func runRegister(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "repository to register (default the working directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2

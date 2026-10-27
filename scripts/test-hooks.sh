@@ -150,6 +150,8 @@ got=$(env -u TRAILS_URL TRAILS_ADDR=127.0.0.1:9123 sh -c '. "$1/trails-common.sh
 [ "$got" = "http://127.0.0.1:9123" ] || fail "common TRAILS_URL from TRAILS_ADDR: got '$got'"
 got=$(env -u TRAILS_URL -u TRAILS_ADDR sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
 [ "$got" = "http://127.0.0.1:7777" ] || fail "common TRAILS_URL default: got '$got'"
+got=$(env -u TRAILS_URL -u TRAILS_ADDR TRAILS_PORT=9124 sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
+[ "$got" = "http://127.0.0.1:9124" ] || fail "common TRAILS_URL from TRAILS_PORT alone: got '$got'"
 # The project id is found by walking up from a subdirectory.
 mkdir -p "$tmp/auto/deep/er"
 got=$(sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf "%s %s" "$TRAILS_PROJECT" "$TRAILS_ROOT"' sh "$hooks" "$tmp/auto/deep/er")
@@ -158,7 +160,7 @@ got=$(sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf "%s
 # Mismatch line: under Claude Code, when the server the hook reached is on another port than the MCP entry's TRAILS_PORT (7777 when unset).
 mm="Trails: the server answered on port $port but the MCP entry points at port 7777; add \"env\": {\"TRAILS_PORT\": \"$port\"} to ~/.claude/settings.json"
 mm_hook() { # EXTRA_ENV... -> session-start against the main server, repo from CLAUDE_PROJECT_DIR
-  printf '{"session_id":"rt-mm"}' | env CLAUDE_PROJECT_DIR="$tmp/repo" TRAILS_BIN=/nonexistent/trails "$@" "$hooks/trails-session-start.sh"
+  printf '{"session_id":"rt-mm"}' | env CLAUDE_PROJECT_DIR="$tmp/repo" TRAILS_BIN=/nonexistent/trails TRAILS_URL="$url" "$@" "$hooks/trails-session-start.sh"
 }
 out=$(mm_hook)
 [ "$out" = "$mm

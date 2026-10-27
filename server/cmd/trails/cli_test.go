@@ -161,8 +161,26 @@ func TestDefaultAddrFromEnv(t *testing.T) {
 		t.Fatalf("open code %d, out %q, stderr %q", code, out.String(), errb.String())
 	}
 	t.Setenv("TRAILS_ADDR", "")
+	t.Setenv("TRAILS_PORT", "")
 	if got := defaultAddr(); got != fallbackAddr {
 		t.Fatalf("default %q", got)
+	}
+}
+
+func TestDefaultAddrFromTRAILSPort(t *testing.T) {
+	t.Setenv("TRAILS_ADDR", "")
+	t.Setenv("TRAILS_PORT", "7701")
+	if got := defaultAddr(); got != "127.0.0.1:7701" {
+		t.Fatalf("TRAILS_PORT=7701 alone: default %q, want 127.0.0.1:7701", got)
+	}
+	t.Setenv("TRAILS_ADDR", "127.0.0.1:7702")
+	if got := defaultAddr(); got != "127.0.0.1:7702" {
+		t.Fatalf("TRAILS_ADDR must win over TRAILS_PORT: default %q, want 127.0.0.1:7702", got)
+	}
+	t.Setenv("TRAILS_ADDR", "")
+	t.Setenv("TRAILS_PORT", "")
+	if got := defaultAddr(); got != fallbackAddr {
+		t.Fatalf("both unset: default %q, want %s", got, fallbackAddr)
 	}
 }
 

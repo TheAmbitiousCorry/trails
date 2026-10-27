@@ -45,7 +45,7 @@ The project may declare its sign tree and tag vocabulary in `.trail/map.md`, com
 
 ## Address
 
-A server address is the `--addr` flag, else `TRAILS_ADDR`, else `127.0.0.1:7777`. `serve`, `register`, `open` and `status` apply the same rule, and the shell hooks apply it to build `TRAILS_URL`, see [adapters](./adapters.md). Nothing is read from a repo: one machine has one address, and one server on it holds every project.
+A server address is the `--addr` flag, else `TRAILS_ADDR`, else `127.0.0.1:` followed by `TRAILS_PORT` when that is set, else `127.0.0.1:7777`. `serve`, `register`, `open` and `status` apply the same rule, and the shell hooks apply it, after `TRAILS_URL` when that is set, to build `TRAILS_URL`, see [adapters](./adapters.md). Under Claude Code, `TRAILS_PORT` in the `env` block of `~/.claude/settings.json` is the one setting that moves the plugin's MCP entry, the hooks and the CLI together. Nothing is read from a repo: one machine has one address, and one server on it holds every project.
 
 ## Content schema
 

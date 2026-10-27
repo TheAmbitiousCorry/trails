@@ -2,7 +2,7 @@
 # SessionStart hook: registers the repo with the server (starting the server first when none answers), then tells the agent its project id and runtime session id so it can pass both to session_start.
 # TRAILS_SESSION_FIELD names the stdin JSON field (default session_id); TRAILS_SESSION_ENV names an environment variable that wins when set.
 # A repo opts in by committing .trail/id, found at or above the repo. Without it this hook contacts no server and says nothing about the project.
-# The server address is TRAILS_URL, else TRAILS_ADDR, else 127.0.0.1:7777. The repo is CLAUDE_PROJECT_DIR, else the payload's cwd, else the working directory.
+# The server address is TRAILS_URL, else TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else 127.0.0.1:7777. The repo is CLAUDE_PROJECT_DIR, else the payload's cwd, else the working directory.
 # TRAILS_BIN names the binary (default trails on PATH). The common path, a server already up, is one curl with a 1 second cap.
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)

@@ -7,7 +7,7 @@ The repo is itself a Claude Code plugin: `.claude-plugin/plugin.json`, `skills/t
 ```json
 { "mcpServers": { "trails": { "type": "http", "url": "http://127.0.0.1:${TRAILS_PORT:-7777}/mcp" } } }
 ```
-   Claude Code expands `${TRAILS_PORT:-7777}`; 7777 is the default port. A machine whose server runs on another port (`TRAILS_ADDR`) sets `TRAILS_PORT` to it once, in the `env` block of `~/.claude/settings.json`: `{ "env": { "TRAILS_PORT": "9123" } }`. When the server the hook reached is on another port than `TRAILS_PORT`, the session-start hook prints `Trails: the server answered on port <n> but the MCP entry points at port <m>; add "env": {"TRAILS_PORT": "<n>"} to ~/.claude/settings.json`.
+   Claude Code expands `${TRAILS_PORT:-7777}`; 7777 is the default port. A machine whose server runs on another port sets `TRAILS_PORT` to it once, in the `env` block of `~/.claude/settings.json`: `{ "env": { "TRAILS_PORT": "9123" } }`. That one setting also moves the hooks and the CLI, which read `TRAILS_PORT` when `TRAILS_ADDR` is unset. When the server the hook reached is on another port than `TRAILS_PORT`, the session-start hook prints `Trails: the server answered on port <n> but the MCP entry points at port <m>; add "env": {"TRAILS_PORT": "<n>"} to ~/.claude/settings.json`.
 3. Copy `../generic/hooks/` to `.trail/hooks/` in the project (the wiring below expects that path).
 4. Merge the `hooks` key of `hooks/settings.json` from this directory into `.claude/settings.json`. It wires `SessionStart`, `PostToolUse` (matchers `Read|Grep|Glob` for off-trail and `Edit|Write|MultiEdit|NotebookEdit` for the edit gate) and `Stop`.
 
