@@ -59,7 +59,7 @@ Column use per type: `file`, `range` and `dir` keep the path in `path_or_url` an
 | `file` | path, content hash | hash of the file at path differs |
 | `range` | path, start line, end line, hash of the range | hash of the range differs, or the file is gone |
 | `dir` | path, hash of the sorted file list | listing differs |
-| `commit` | sha | sha is not an ancestor of HEAD |
+| `commit` | sha | sha names no commit reachable from a ref |
 | `url` | url, fetched_at, hash of fetched body | body hash differs on re-fetch, or fetch fails. Fetches go through a resolver guard that refuses loopback, private and link-local addresses |
 | `transcript` | provider, id | never; the check always passes |
 | `produced_by` | command, HEAD sha at write time | HEAD differs from the stored sha (renders go stale on every commit until re-written) |

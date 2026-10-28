@@ -205,28 +205,41 @@ func TestEveryAnchorType(t *testing.T) {
 	}
 }
 
-func TestCommitAnchorToNonAncestorFails(t *testing.T) {
+func TestCommitAnchorNeedsACommitReachableFromARef(t *testing.T) {
 	repo := newRepo(t)
 	_, c := open(t, repo)
 	ctx := context.Background()
-	git(t, repo, "checkout", "-q", "-b", "side")
-	write(t, repo, "side.txt", "side\n")
+	git(t, repo, "branch", "-M", "main")
+	git(t, repo, "checkout", "-q", "-b", "staging")
+	git(t, repo, "checkout", "-q", "main")
+	write(t, repo, "release.txt", "shipped\n")
 	git(t, repo, "add", ".")
-	git(t, repo, "commit", "-q", "-m", "side")
-	side := git(t, repo, "rev-parse", "HEAD")
-	git(t, repo, "checkout", "-q", "-")
+	git(t, repo, "commit", "-q", "-m", "release")
+	mainOnly := git(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "checkout", "-q", "--detach")
+	write(t, repo, "orphan.txt", "unreferenced\n")
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-q", "-m", "orphan")
+	orphan := git(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "checkout", "-q", "staging")
 
-	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: side}); ok || err != nil {
-		t.Errorf("non-ancestor: ok %v err %v", ok, err)
+	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: mainOnly}); !ok || err != nil {
+		t.Errorf("main-only commit from staging: ok %v err %v", ok, err)
 	}
-	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: strings.Repeat("0", 40)}); ok || err != nil {
+	if _, err := c.Resolve(ctx, anchor.Anchor{Type: "commit", Hash: mainOnly}); err != nil {
+		t.Errorf("Resolve refused a commit on main: %v", err)
+	}
+	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: orphan}); ok || err != nil {
+		t.Errorf("commit reachable from no ref: ok %v err %v", ok, err)
+	}
+	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: "3f9a1c2b7d4e5f60718293a4b5c6d7e8f9012345"}); ok || err != nil {
 		t.Errorf("unknown sha: ok %v err %v", ok, err)
 	}
 	if ok, err := c.Check(ctx, anchor.Anchor{Type: "commit", Hash: "--help"}); ok || err != nil {
 		t.Errorf("option-shaped sha: ok %v err %v", ok, err)
 	}
-	if _, err := c.Resolve(ctx, anchor.Anchor{Type: "commit", Hash: side}); err == nil {
-		t.Error("Resolve accepted a non-ancestor commit")
+	if _, err := c.Resolve(ctx, anchor.Anchor{Type: "commit", Hash: "3f9a1c2b7d4e5f60718293a4b5c6d7e8f9012345"}); err == nil {
+		t.Error("Resolve accepted an unknown commit")
 	}
 }
 

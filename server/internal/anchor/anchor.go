@@ -68,15 +68,18 @@ func (c Checker) Check(ctx context.Context, a Anchor) (bool, error) {
 		}
 		return h == a.Hash, nil
 	case "commit":
+		// Reachable from any ref, not only HEAD: a staging branch must still anchor a sha that shipped from main.
 		if !shaRe.MatchString(a.Hash) {
 			return false, nil
 		}
-		err := exec.CommandContext(ctx, "git", "-C", c.Repo, "merge-base", "--is-ancestor", a.Hash, "HEAD").Run()
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return false, nil
+		if err := exec.CommandContext(ctx, "git", "-C", c.Repo, "cat-file", "-e", a.Hash+"^{commit}").Run(); err != nil {
+			return gitMiss(err)
 		}
-		return err == nil, err
+		out, err := exec.CommandContext(ctx, "git", "-C", c.Repo, "for-each-ref", "--contains", a.Hash).Output()
+		if err != nil {
+			return gitMiss(err)
+		}
+		return strings.TrimSpace(string(out)) != "", nil
 	case "transcript":
 		return true, nil
 	case "produced_by":
@@ -110,7 +113,7 @@ func (c Checker) Resolve(ctx context.Context, a Anchor) (Anchor, error) {
 			return a, err
 		}
 		if !ok {
-			return a, fmt.Errorf("commit %q is not an ancestor of HEAD", a.Hash)
+			return a, fmt.Errorf("commit %q is not reachable from any ref in this repo", a.Hash)
 		}
 	case "transcript":
 	default:
@@ -119,6 +122,15 @@ func (c Checker) Resolve(ctx context.Context, a Anchor) (Anchor, error) {
 	now := store.Now()
 	a.FetchedAt, a.LastCheckedAt, a.OK = now, now, true
 	return a, nil
+}
+
+// gitMiss turns a git run that exited non-zero, which means the object is absent, into a failed check; any other error stays an error.
+func gitMiss(err error) (bool, error) {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (c Checker) head(ctx context.Context) (string, error) {
