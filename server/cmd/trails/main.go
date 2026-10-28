@@ -24,7 +24,15 @@ const sweepEvery = 6 * time.Hour
 
 func main() {
 	args := os.Args[1:]
-	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
+	if len(args) > 0 && len(args[0]) > 0 && args[0][0] == '-' {
+		fmt.Fprint(os.Stderr, usage)
+		if args[0] == "-h" || args[0] == "--help" || args[0] == "-help" {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "trails: %s came before the command; flags follow it, as in: trails status %s\n", args[0], args[0])
+		os.Exit(2)
+	}
+	if len(args) > 0 && len(args[0]) > 0 {
 		cmd := args[0]
 		args = args[1:]
 		switch cmd {
@@ -42,6 +50,16 @@ func main() {
 	}
 	serve(args)
 }
+
+const usage = `usage: trails <command> [flags]
+
+  serve     run the server (--repo <path> repeatable, --addr host:port)
+  register  tell the running server about this repository
+  open      open the browser at the trail, map or graph
+  status    list every project the server holds
+
+Flags go after the command; each command takes --help.
+`
 
 // repoFlags collects every --repo value.
 type repoFlags []string
