@@ -154,3 +154,21 @@ func TestOpenNeedsAnID(t *testing.T) {
 		t.Error("Open wrote into the repo")
 	}
 }
+
+func TestRegisteredRuntimeSelectsTheProject(t *testing.T) {
+	repoA, repoB := t.TempDir(), t.TempDir()
+	reg, addr := serveHome(t, t.TempDir(), repoA, repoB)
+	idB, _ := store.ReadID(repoB)
+	call := connect(t, addr)
+
+	res, err := call("session_start", map[string]any{"task": "unregistered", "runtime_session_id": "rt-7"})
+	if txt := refusal(t, res, err); !strings.HasPrefix(txt, "project_unknown:") {
+		t.Fatalf("unregistered runtime = %q", txt)
+	}
+	postAPI(t, addr, "/api/projects", map[string]any{"repo": repoB, "runtime_session_id": "rt-7"})
+	res, err = call("session_start", map[string]any{"task": "registered", "runtime_session_id": "rt-7"})
+	sid := structured(t, res, err)["session_id"].(string)
+	if p, ok, _ := reg.BySession(context.Background(), sid); !ok || p.ID != idB {
+		t.Errorf("session landed in %v, want project %s", p, idB)
+	}
+}

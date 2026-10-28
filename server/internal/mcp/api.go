@@ -78,7 +78,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// registerProject opens the repo named in the body and replies its id and title.
+// registerProject opens the repo named in the body and replies its id and title; a runtime_session_id in the body is remembered for that project.
 // It never writes into the repo: any local process can reach the port, so only a repo that already holds .trail/id is accepted.
 func registerProject(reg *project.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +109,7 @@ func registerProject(reg *project.Registry) http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		reg.RememberRuntime(str(in, "runtime_session_id"), p.ID)
 		writeJSON(w, http.StatusOK, ref)
 	})
 }

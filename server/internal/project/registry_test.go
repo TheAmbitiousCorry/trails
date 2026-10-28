@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,27 @@ func TestOpenKnownSkipsAMovedRepo(t *testing.T) {
 	reg2.OpenKnown()
 	if ps := reg2.List(); len(ps) != 1 || ps[0].ID != "keep" {
 		t.Errorf("reopened %d projects", len(ps))
+	}
+}
+
+func TestForStartUsesTheRegisteredRuntime(t *testing.T) {
+	ctx := context.Background()
+	reg := project.NewRegistry(t.TempDir(), 0)
+	defer reg.Close()
+	reg.Open(repoWithID(t, "aaa"))
+	pb, _ := reg.Open(repoWithID(t, "bbb"))
+	start := trail.Call{Mint: true, Runtime: "rt-9"}
+	_, _, err := reg.Resolve(ctx, start)
+	var ref *trail.Refusal
+	if !errors.As(err, &ref) || ref.Rule != "project_unknown" || !strings.Contains(ref.Fix, "runtime_session_id") {
+		t.Fatalf("unregistered runtime = %v", err)
+	}
+	reg.RememberRuntime("rt-9", pb.ID)
+	if p, _, err := reg.Resolve(ctx, start); err != nil || p != pb {
+		t.Errorf("registered runtime = %v %v, want bbb", p, err)
+	}
+	if p, _, err := reg.Resolve(ctx, trail.Call{Mint: true, Project: "aaa", Runtime: "rt-9"}); err != nil || p.ID != "aaa" {
+		t.Errorf("explicit project must win, got %v %v", p, err)
 	}
 }
 

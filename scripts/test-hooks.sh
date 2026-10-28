@@ -23,7 +23,7 @@ echo 'package a' > "$tmp/repo/src/a.go"
 
 port=$(( 20000 + $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % 30000 ))
 url=http://127.0.0.1:$port
-"$tmp/trails" --repo "$tmp/repo" --home "$tmp/home" --addr "127.0.0.1:$port" >"$tmp/server.log" 2>&1 &
+"$tmp/trails" serve --repo "$tmp/repo" --home "$tmp/home" --addr "127.0.0.1:$port" >"$tmp/server.log" 2>&1 &
 pid=$!
 i=0
 until curl -s -o /dev/null "$url/api/ping"; do
@@ -155,7 +155,7 @@ auto_hook() { # CWD_DIR -> runs the session-start hook with cwd given in the pay
   printf '{"session_id":"rt-auto","cwd":"%s"}' "$1" | HOME=$fakehome TRAILS_URL=$aurl TRAILS_BIN=$tmp/fake/trails "$hooks/trails-session-start.sh"
 }
 out=$(auto_hook "$tmp/noid")
-[ "$out" = "Trails runtime_session_id: rt-auto" ] || fail "no-id session-start: got '$out'"
+[ "$out" = "Trails: this repo has no .trail/id; run trails register to put it on the trail" ] || fail "no-id session-start: got '$out'"
 [ ! -e "$tmp/fake/args" ] || fail "no-id repo started the server"
 out=$(auto_hook "$tmp/auto")
 pid2=$(cat "$tmp/fake/pid" 2>/dev/null || true)
@@ -228,6 +228,8 @@ out=$(printf '{"session_id":"rt-two","cwd":"%s"}' "$tmp/repo2" | "$hooks/trails-
 Trails runtime_session_id: rt-two" ] || fail "second repo session-start: got '$out'"
 [ "$(curl -sf "$url/api/projects" | jq -c '[.projects[].id] | sort')" = "$(jq -cn --arg a "$rid" '[$a, "second"] | sort')" ] || fail "the server does not hold both repos"
 sid2=$(tool session_start '{"task":"second repo","task_type":"test","project":"second","runtime_session_id":"rt-two"}' | jq -r .session_id)
+rsid=$(tool session_start '{"task":"by runtime id","task_type":"test","runtime_session_id":"rt-two"}' | jq -r .session_id)
+curl -sf "$url/api/p/second/sessions/$rsid" >/dev/null || fail "session_start with only the registered runtime id did not land in the second repo"
 tool write "{\"session_id\":\"$sid2\",\"parent_sign_id\":\"root\",\"kind\":\"decision\",\"decided_by\":\"test\",\"decided_at\":\"2026-10-27\",\"title\":\"Package b\",\"read_when\":\"you touch package b\",\"body\":\"Package b is tiny.\",\"anchors\":[{\"type\":\"file\",\"path\":\"src/b.go\"}]}" >/dev/null
 entry2=$(tool look "{\"session_id\":\"$sid2\",\"sign_id\":\"root\"}" | jq -r '[.. | .id? // empty | select(. != "trail")][0]')
 two() { printf '{"session_id":"rt-two","cwd":"%s","tool_input":{"file_path":"src/b.go"}}' "$1"; }

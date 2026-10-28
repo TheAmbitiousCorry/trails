@@ -238,7 +238,7 @@ func (r *Registry) Resolve(ctx context.Context, c trail.Call) (*Project, *sql.DB
 	var p *Project
 	if c.Mint {
 		var err error
-		if p, err = r.forStart(c.Project); err != nil {
+		if p, err = r.forStart(c.Project, c.Runtime); err != nil {
 			return nil, nil, err
 		}
 	} else {
@@ -254,13 +254,32 @@ func (r *Registry) Resolve(ctx context.Context, c trail.Call) (*Project, *sql.DB
 	return p, p.DB(), nil
 }
 
-func (r *Registry) forStart(id string) (*Project, error) {
+// RememberRuntime records that the agent runtime's session id belongs to the project id, so a later session_start carrying only that id is placed.
+func (r *Registry) RememberRuntime(runtimeID, projectID string) {
+	if runtimeID == "" {
+		return
+	}
+	r.mu.Lock()
+	r.runtimes[runtimeID] = projectID
+	r.mu.Unlock()
+}
+
+// forStart places a session_start: the named project wins, else the project the session-start hook registered for the runtime id, else the only open project.
+func (r *Registry) forStart(id, runtime string) (*Project, error) {
 	if id != "" {
 		if p, ok := r.ByID(id); ok {
 			return p, nil
 		}
-	} else if p, err := r.Sole(); err == nil {
-		return p, nil
+	} else {
+		r.mu.Lock()
+		p, ok := r.byID[r.runtimes[runtime]]
+		r.mu.Unlock()
+		if ok && runtime != "" {
+			return p, nil
+		}
+		if p, err := r.Sole(); err == nil {
+			return p, nil
+		}
 	}
 	ids := make([]string, 0)
 	for _, p := range r.List() {
@@ -270,5 +289,5 @@ func (r *Registry) forStart(id string) (*Project, error) {
 	if len(ids) > 0 {
 		held = "this server holds: " + strings.Join(ids, ", ")
 	}
-	return nil, &trail.Refusal{Rule: "project_unknown", Fix: fmt.Sprintf("pass project, the id in the repo's .trail/id; %s", held)}
+	return nil, &trail.Refusal{Rule: "project_unknown", Fix: fmt.Sprintf("pass project, the id in the repo's .trail/id, or pass runtime_session_id from the session-start hook; %s", held)}
 }

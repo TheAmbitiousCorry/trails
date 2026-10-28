@@ -1,17 +1,22 @@
 #!/bin/sh
-# SessionStart hook: registers the repo with the server (starting the server first when none answers), then tells the agent its project id and runtime session id so it can pass both to session_start.
+# SessionStart hook: registers the repo with the server (starting the server first when none answers), sending the runtime session id so the server can place a session_start that carries only that id, then tells the agent its project id and runtime session id.
 # TRAILS_SESSION_FIELD names the stdin JSON field (default session_id); TRAILS_SESSION_ENV names an environment variable that wins when set.
-# A repo opts in by committing .trail/id, found at or above the repo. Without it this hook contacts no server and says nothing about the project.
+# A repo opts in by committing .trail/id, found at or above the repo. Without it this hook contacts no server and only prints a nudge to run trails register.
 # The server address is TRAILS_URL, else TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else 127.0.0.1:7777. The repo is CLAUDE_PROJECT_DIR, else the payload's cwd, else the working directory.
 # TRAILS_BIN names the binary (default trails on PATH). The common path, a server already up, is one curl with a 1 second cap.
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)
 trails_init "$input"
+id=$(trails_session_id "$input")
+if [ -z "$TRAILS_PROJECT" ]; then
+  emit_context SessionStart "Trails: this repo has no .trail/id; run trails register to put it on the trail"
+  exit 0
+fi
 note=
 reached=
 # register sets code to the HTTP status of the registration, 000 when nothing answered.
 register() {
-  code=$(jq -cn --arg r "$TRAILS_ROOT" '{repo: $r}' | curl -s --max-time 1 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "$TRAILS_URL/api/projects")
+  code=$(jq -cn --arg r "$TRAILS_ROOT" --arg s "$id" '{repo: $r} + (if $s == "" then {} else {runtime_session_id: $s} end)' | curl -s --max-time 1 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "$TRAILS_URL/api/projects")
 }
 if [ -n "$TRAILS_ROOT" ]; then
   register
@@ -52,7 +57,6 @@ if [ -n "$reached" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
   fi
 fi
 
-id=$(trails_session_id "$input")
 text=$note
 [ -z "$TRAILS_PROJECT" ] || text=${text:+$text
 }"Trails project: $TRAILS_PROJECT"

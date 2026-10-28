@@ -167,7 +167,7 @@ input_schema: {
 }
 
 tool session_start
-description: Call this first, before reading project files, with project: the id in the repo's .trail/id (omit only when the server holds one project). Returns session_id, which every later call must carry, contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. One call is enough to start; do not call it again.
+description: Call this first, before reading project files, with project: the id in the repo's .trail/id (omit when the server holds one project, or when you pass the runtime_session_id the session-start hook printed, which the hook registered). Returns session_id, which every later call must carry, contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. One call is enough to start; do not call it again.
 input_schema: {
   "additionalProperties": false,
   "properties": {

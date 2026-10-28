@@ -32,7 +32,9 @@ type sessionStartIn struct {
 	Project          string `json:"project,omitempty" jsonschema:"the id in .trail/id; required when the server holds several projects"`
 }
 
-func (s sessionStartIn) Call() trail.Call { return trail.Call{Mint: true, Project: s.Project} }
+func (s sessionStartIn) Call() trail.Call {
+	return trail.Call{Mint: true, Project: s.Project, Runtime: s.RuntimeSessionID}
+}
 
 type orient struct {
 	RootSign   signRef  `json:"root_sign"`
@@ -324,7 +326,7 @@ type sessionEndOut struct {
 func registerTools(srv *sdk.Server, reg *project.Registry) {
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "session_start",
-		Description: "Call this first, before reading project files, with project: the id in the repo's .trail/id (omit only when the server holds one project). Returns session_id, which every later call must carry, " +
+		Description: "Call this first, before reading project files, with project: the id in the repo's .trail/id (omit when the server holds one project, or when you pass the runtime_session_id the session-start hook printed, which the hook registered). Returns session_id, which every later call must carry, " +
 			"contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. " +
 			"One call is enough to start; do not call it again.",
 	}, trail.Record(reg, "session_start", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionStartIn, p *project.Project) (*sdk.CallToolResult, sessionStartOut, error) {

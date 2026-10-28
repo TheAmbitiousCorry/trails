@@ -33,6 +33,8 @@ type Call struct {
 	Mint bool
 	// Project is the project id a minting call names; empty for every other call.
 	Project string
+	// Runtime is the runtime's own session id a minting call carries; empty otherwise.
+	Runtime string
 }
 
 type Input interface{ Call() Call }
