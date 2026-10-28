@@ -10,6 +10,7 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | Before-read event | `PreToolUse`, matcher `Read\|Grep\|Glob`; unverified, taken from memory and not yet checked against the docs | none recorded: after-read only | none recorded: after-read only | none recorded: after-read only |
 | Deny the read | `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":...}}`, exit 0; unverified, taken from memory (exit 2 with the reason on stderr is the older form) | n/a | n/a | n/a |
 | Reply the agent sees | stdout JSON `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `additional_context` |
+| Shell read | `PostToolUse`, matcher `Bash`; paths taken from `tool_input.command` tokens that exist as files, recorded as off-trail and never denied | n/a | n/a | n/a |
 | After-edit event | `PostToolUse`, matcher `Edit\|Write\|MultiEdit\|NotebookEdit` | none recorded: no edit gate | none recorded: no edit gate | `afterFileEdit`, unverified |
 | Stop event | `Stop` | `Stop` | `AfterAgent` | `stop` |
 | Block the stop | `{"decision":"block","reason":...}` or exit 2 | same | `{"decision":"deny","reason":...}` or exit 2 | `{"followup_message":...}`, a follow-up turn, capped by `loop_limit` |

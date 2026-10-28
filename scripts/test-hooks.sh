@@ -281,4 +281,16 @@ mean_us=$(( ($(date +%s%N) - start) / 10000 ))
 echo "trails-off-trail.sh mean wall time over 10 runs: $((mean_us / 1000)).$(printf '%03d' $((mean_us % 1000))) ms"
 [ "$mean_us" -lt 50000 ] || fail "mean wall time over 50 ms"
 
+# Shell reads: a PostToolUse Bash payload records an off_trail event per file the command names, and a command naming no file prints nothing.
+echo 'readme' > "$tmp/repo/README.md"
+bsid=$(tool session_start "{\"task\":\"shell read\",\"task_type\":\"test\",\"project\":\"$rid\",\"runtime_session_id\":\"rt-shell\"}" | jq -r .session_id)
+before=$(curl -sf "$url/api/p/$rid/sessions/$bsid" | jq '.off_trail | length')
+out=$(printf '{"session_id":"rt-shell","tool_name":"Bash","tool_input":{"command":"cat README.md | head"}}' | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-bash-read.sh")
+expect_empty "shell read of an unanchored file" "$out"
+[ "$(curl -sf "$url/api/p/$rid/sessions/$bsid" | jq '.off_trail | length')" -eq $((before + 1)) ] || fail "shell read recorded no off_trail event"
+out=$(printf '{"session_id":"rt-shell","tool_name":"Bash","tool_input":{"command":"cat src/a.go; ls"}}' | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-bash-read.sh")
+expect "shell read of an anchored file" ".hookSpecificOutput.additionalContext == \"Trails has an entry for this file: $entry, you touch package a\"" "$out"
+out=$(printf '{"session_id":"rt-shell","tool_name":"Bash","tool_input":{"command":"echo hello && ls"}}' | "$hooks/trails-bash-read.sh")
+expect_empty "shell command naming no file" "$out"
+
 echo "hooks ok"

@@ -30,6 +30,16 @@
             "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-edited.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-bash-read.sh\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
