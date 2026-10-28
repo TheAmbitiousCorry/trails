@@ -90,7 +90,7 @@ out=$(printf '{"session_id":"rt-claude","tool_input":{"file_path":"%s/src/multi.
 expect_empty "claude pre-read after one of the entries is read" "$out"
 
 out=$(printf '{"session_id":"rt-claude","stop_hook_active":false}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
-expect "claude stop" '.decision == "block" and (.reason | startswith("Trails session still open with 0 gaps: call session_end"))' "$out"
+expect "claude stop" ".decision == \"block\" and (.reason | startswith(\"Trails session $csid (hook test) still open with 0 gaps: call session_end\"))" "$out"
 
 # Codex: same stdin shape, session start and stop only.
 out=$(printf '{"session_id":"rt-codex"}' | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-session-start.sh")
@@ -104,7 +104,7 @@ expect "gemini session-start" '.hookSpecificOutput.additionalContext == "Trails 
 out=$(printf '{"tool_input":{"file_path":"src/a.go"}}' | GEMINI_SESSION_ID=rt-gemini TRAILS_SESSION_ENV=GEMINI_SESSION_ID TRAILS_CONTEXT_FORMAT=hook-json TRAILS_EVENT=AfterTool "$hooks/trails-off-trail.sh")
 expect "gemini off-trail" ".hookSpecificOutput.hookEventName == \"AfterTool\" and (.hookSpecificOutput.additionalContext | startswith(\"Trails has an entry for this file: $entry\"))" "$out"
 out=$(printf '{}' | GEMINI_SESSION_ID=rt-gemini TRAILS_SESSION_ENV=GEMINI_SESSION_ID TRAILS_BLOCK_FORMAT=deny "$hooks/trails-stop.sh")
-expect "gemini stop" '.decision == "deny" and (.reason | startswith("Trails session still open"))' "$out"
+expect "gemini stop" '.decision == "deny" and (.reason | startswith("Trails session ") and contains(" (hook test) still open"))' "$out"
 
 # Cursor: id from conversation_id, additional_context, followup_message.
 out=$(printf '{"conversation_id":"rt-cursor"}' | TRAILS_SESSION_FIELD=conversation_id TRAILS_CONTEXT_FORMAT=cursor "$hooks/trails-session-start.sh")
@@ -112,7 +112,7 @@ expect "cursor session-start" '.additional_context == "Trails project: '"$rid"'\
 out=$(printf '{"conversation_id":"rt-cursor","tool_input":{"file_path":"src/a.go"}}' | TRAILS_SESSION_FIELD=conversation_id TRAILS_CONTEXT_FORMAT=cursor "$hooks/trails-off-trail.sh")
 expect "cursor off-trail" ".additional_context | startswith(\"Trails has an entry for this file: $entry\")" "$out"
 out=$(printf '{"conversation_id":"rt-cursor"}' | TRAILS_SESSION_FIELD=conversation_id TRAILS_BLOCK_FORMAT=cursor "$hooks/trails-stop.sh")
-expect "cursor stop" '.followup_message | startswith("Trails session still open")' "$out"
+expect "cursor stop" '.followup_message | startswith("Trails session ") and contains(" (hook test) still open")' "$out"
 
 # Plain text is the default injection form.
 out=$(printf '{"session_id":"rt-claude"}' | "$hooks/trails-session-start.sh")
@@ -128,7 +128,8 @@ out=$(printf '{"conversation_id":"rt-cursor","file_path":"src/a.go"}' | TRAILS_S
 expect "cursor edited" ".additional_context | startswith(\"Trails has 1 entries anchored to this file\")" "$out"
 printf '{"session_id":"rt-codex","tool_input":{"file_path":"src/a.go"}}' | "$hooks/trails-edited.sh" >/dev/null
 out=$(printf '{"session_id":"rt-codex"}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
-expect "stop with edits" ".decision == \"block\" and (.reason | contains(\"Trails: entries anchored to files you edited, not yet updated or confirmed: $entry (src/a.go)\"))" "$out"
+xsid=$(jq -r .session_id "$tmp/start-codex.json")
+expect "stop with edits" ".decision == \"block\" and (.reason | contains(\"Trails: entries anchored to files you edited, not yet updated or confirmed for session $xsid: $entry (src/a.go)\"))" "$out"
 
 # The claude session has had one block; two more force it closed and the third prints nothing.
 printf '{"session_id":"rt-claude"}' | "$hooks/trails-stop.sh" >/dev/null

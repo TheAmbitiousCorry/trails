@@ -379,11 +379,13 @@ type gapRef struct {
 }
 
 type stopReply struct {
-	Open   bool      `json:"open"`
-	Blocks int       `json:"blocks"`
-	Forced bool      `json:"forced,omitempty"`
-	Gaps   []gapRef  `json:"gaps"`
-	Edits  []editRef `json:"edits"`
+	Open      bool      `json:"open"`
+	SessionID string    `json:"session_id"`
+	Task      string    `json:"task"`
+	Blocks    int       `json:"blocks"`
+	Forced    bool      `json:"forced,omitempty"`
+	Gaps      []gapRef  `json:"gaps"`
+	Edits     []editRef `json:"edits"`
 }
 
 type editRef struct {
@@ -393,7 +395,8 @@ type editRef struct {
 
 func stopCheck(ctx context.Context, st *project.Project, sid string, in map[string]any) (any, error) {
 	var blocks int
-	err := st.DB().QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks`, sid).Scan(&blocks)
+	var task string
+	err := st.DB().QueryRowContext(ctx, `UPDATE sessions SET blocks = blocks + 1 WHERE id = ? RETURNING blocks, task`, sid).Scan(&blocks, &task)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +404,7 @@ func stopCheck(ctx context.Context, st *project.Project, sid string, in map[stri
 		if _, err := st.DB().ExecContext(ctx, `UPDATE sessions SET ended_at = ?, ended_by = 'forced' WHERE id = ? AND ended_at IS NULL`, store.Now(), sid); err != nil {
 			return nil, err
 		}
-		return stopReply{Blocks: blocks, Forced: true, Gaps: []gapRef{}, Edits: []editRef{}}, nil
+		return stopReply{SessionID: sid, Task: task, Blocks: blocks, Forced: true, Gaps: []gapRef{}, Edits: []editRef{}}, nil
 	}
 	rows, err := st.DB().QueryContext(ctx, `SELECT id, COALESCE(query, paths_json, '') FROM gaps WHERE session_id = ? AND state = 'open' ORDER BY id`, sid)
 	if err != nil {
@@ -427,5 +430,5 @@ func stopCheck(ctx context.Context, st *project.Project, sid string, in map[stri
 	for _, e := range pending {
 		edits = append(edits, editRef{e.ID, e.Path})
 	}
-	return stopReply{Open: true, Blocks: blocks, Gaps: gaps, Edits: edits}, nil
+	return stopReply{Open: true, SessionID: sid, Task: task, Blocks: blocks, Gaps: gaps, Edits: edits}, nil
 }
