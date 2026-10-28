@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
@@ -37,6 +38,49 @@ func OpenGaps(ctx context.Context, db *sql.DB, sessionID string) ([]OpenGapRow, 
 		out = append(out, g)
 	}
 	return out, rows.Err()
+}
+
+type writtenEntry struct {
+	id, readWhen string
+}
+
+// writtenThisSession lists the live entries the session wrote a version of, in entry id order.
+func writtenThisSession(ctx context.Context, db *sql.DB, sessionID string) ([]writtenEntry, error) {
+	rows, err := db.QueryContext(ctx, `SELECT e.id, e.read_when FROM entries e
+		WHERE e.tier != 'dormant' AND e.superseded_by IS NULL
+			AND EXISTS (SELECT 1 FROM versions v WHERE v.entry_id = e.id AND v.actor = ?)
+		ORDER BY e.id`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []writtenEntry
+	for rows.Next() {
+		var w writtenEntry
+		if err := rows.Scan(&w.id, &w.readWhen); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// fillCandidates are the written entries whose read_when shares a content term with the gap query. They are suggestions; nothing closes the gap.
+func fillCandidates(query string, written []writtenEntry) []string {
+	terms := map[string]bool{}
+	for _, t := range search.ContentTerms(query) {
+		terms[t] = true
+	}
+	var ids []string
+	for _, w := range written {
+		for _, t := range search.ContentTerms(w.readWhen) {
+			if terms[t] {
+				ids = append(ids, w.id)
+				break
+			}
+		}
+	}
+	return ids
 }
 
 // EditedEntry is a live entry anchored to a file the session edited and has since neither written nor confirmed.
@@ -102,11 +146,18 @@ func EndSession(ctx context.Context, db *sql.DB, sessionID string) (EndCounts, e
 		return EndCounts{}, err
 	}
 	if len(gaps) > 0 {
+		written, err := writtenThisSession(ctx, db, sessionID)
+		if err != nil {
+			return EndCounts{}, err
+		}
 		parts := make([]string, len(gaps))
 		for i, g := range gaps {
 			parts[i] = fmt.Sprintf("gap %d: %q", g.ID, g.Query)
+			if ids := fillCandidates(g.Query, written); len(ids) > 0 {
+				parts[i] += "; fill candidates: " + strings.Join(ids, ", ")
+			}
 		}
-		return EndCounts{}, &Refusal{Rule: "gaps_open", Fix: "resolve each with resolve_gap (fill, merge or dismiss), then call session_end again. " + strings.Join(parts, "; ")}
+		return EndCounts{}, &Refusal{Rule: "gaps_open", Fix: "resolve each with resolve_gap (gap_id as an integer, action fill, merge or dismiss; entry_id for fill or merge, reason for dismiss), then call session_end again. " + strings.Join(parts, "; ")}
 	}
 	edits, err := UnconfirmedEdits(ctx, db, sessionID)
 	if err != nil {

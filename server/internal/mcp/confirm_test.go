@@ -227,14 +227,14 @@ func TestConfirmResolveGapSessionEnd(t *testing.T) {
 	}
 	gap := gapIDs(t, txt)[0]
 
-	a.ok("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id})
+	a.ok("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id})
 	if hit := a.ok("search", map[string]any{"query": "zqxv ledger cadence"}); hit["miss"] != false || ids(t, hit["hits"])[0] != id {
 		t.Fatalf("merged alias is not searchable: %v", hit)
 	}
 
 	// Another session cannot resolve this session's gap, and a resolved gap stays resolved.
-	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "unknown_gap")
-	a.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "target_id": id}, "gap_closed")
+	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id}, "unknown_gap")
+	a.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id}, "gap_closed")
 
 	end := a.ok("session_end", map[string]any{})
 	if end["closed"] != true || end["reads"] != float64(1) || end["writes"] != float64(1) || end["confirms"] != float64(0) {
@@ -250,7 +250,7 @@ func TestConfirmResolveGapSessionEnd(t *testing.T) {
 	for tool, args := range map[string]map[string]any{
 		"write":       {"parent_sign_id": "root", "kind": "decision", "title": "t", "read_when": "r", "body": "b"},
 		"confirm":     {"entry_id": id},
-		"resolve_gap": {"gap_id": gap, "action": "merge", "target_id": id},
+		"resolve_gap": {"gap_id": gap, "action": "merge", "entry_id": id},
 		"read":        {"entry_id": id},
 		"look":        {"sign_id": "root"},
 		"session_end": {},
@@ -271,7 +271,7 @@ func TestFillDismissAndDismissCap(t *testing.T) {
 		gaps = append(gaps, gapIDs(t, a.refused("session_end", map[string]any{}, "gaps_open"))[len(gaps)])
 	}
 
-	a.refused("resolve_gap", map[string]any{"gap_id": gaps[0], "action": "fill", "target_id": theirs}, "fill_target")
+	a.refused("resolve_gap", map[string]any{"gap_id": gaps[0], "action": "fill", "entry_id": theirs}, "fill_target")
 	a.refused("resolve_gap", map[string]any{"gap_id": gaps[0], "action": "dismiss"}, "reason")
 	a.refused("resolve_gap", map[string]any{"gap_id": gaps[0], "action": "dismiss", "reason": strings.Repeat("x", 201)}, "reason")
 	a.refused("resolve_gap", map[string]any{"gap_id": gaps[0], "action": "ignore"}, "action")
@@ -282,7 +282,7 @@ func TestFillDismissAndDismissCap(t *testing.T) {
 	a.refused("resolve_gap", map[string]any{"gap_id": gaps[3], "action": "dismiss", "reason": "also out of scope"}, "dismiss_cap")
 
 	mine := a.writeDecision("My own note", "Written here.")
-	if got := a.ok("resolve_gap", map[string]any{"gap_id": gaps[3], "action": "fill", "target_id": mine}); got["state"] != "resolved" || got["resolution"] != "fill" {
+	if got := a.ok("resolve_gap", map[string]any{"gap_id": gaps[3], "action": "fill", "entry_id": mine}); got["state"] != "resolved" || got["resolution"] != "fill" {
 		t.Errorf("fill = %v", got)
 	}
 }
@@ -334,5 +334,32 @@ func TestSessionStartTaskTypeIsOptional(t *testing.T) {
 	var tt string
 	if err := st.DB.QueryRow(`SELECT task_type FROM sessions WHERE id = ?`, sid).Scan(&tt); err != nil || tt != "" {
 		t.Errorf("task_type = %q, err %v; want empty", tt, err)
+	}
+}
+
+func TestGapsOpenSuggestsFillCandidatesFromThisSession(t *testing.T) {
+	_, addr := startServer(t)
+	author := newAgent(t, addr, "")
+	a := newAgent(t, addr, "")
+	theirs := author.writeDecision("Ledger cadence", "Close the ledger monthly.")
+	mine := a.writeDecision("Ledger cadence notes", "Close the ledger on the last day.")
+	a.ok("look", map[string]any{"sign_id": "root"})
+	a.ok("search", map[string]any{"query": "zqxv ledger quokka"})
+
+	txt := a.refused("session_end", map[string]any{}, "gaps_open")
+	if !strings.HasSuffix(txt, "fill candidates: "+mine) {
+		t.Errorf("refusal does not suggest only the entry this session wrote (%s, not %s): %q", mine, theirs, txt)
+	}
+	if !strings.Contains(txt, "resolve_gap (gap_id as an integer") {
+		t.Errorf("refusal does not name the resolve_gap shape: %q", txt)
+	}
+}
+
+func TestLookWithoutTargetReturnsRoot(t *testing.T) {
+	_, addr := startServer(t)
+	a := newAgent(t, addr, "")
+	got := a.ok("look", map[string]any{})
+	if got["sign_id"] != "root" {
+		t.Errorf("look with no target = %v, want the root sign", got)
 	}
 }

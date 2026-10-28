@@ -131,7 +131,7 @@ func seed(t *testing.T) *fixture {
 	if _, ok := a.call("write", map[string]any{"parent_sign_id": "invoices", "kind": "decision", "title": "No author", "read_when": "never", "body": "x"}); ok {
 		t.Fatal("decision without decided_by was accepted")
 	}
-	a.must("resolve_gap", map[string]any{"gap_id": 1, "action": "merge", "target_id": "invoices-round-to-cents"})
+	a.must("resolve_gap", map[string]any{"gap_id": 1, "action": "merge", "entry_id": "invoices-round-to-cents"})
 	a.must("session_end", map[string]any{})
 
 	// The session is closed, so the hook endpoint would ignore it; record the off-trail row directly.

@@ -45,7 +45,7 @@ func ResolveGap(ctx context.Context, db *sql.DB, sessionID string, r Resolution)
 			return err
 		}
 		if wrote == 0 {
-			return &Refusal{Rule: "fill_target", Fix: "fill needs target_id: an entry this session wrote; write the entry first, then resolve the gap with its id"}
+			return &Refusal{Rule: "fill_target", Fix: "fill needs entry_id: an entry this session wrote; write the entry first, then resolve the gap with its id"}
 		}
 		reason = ""
 	case "merge":
@@ -85,7 +85,7 @@ func mergeAlias(ctx context.Context, db *sql.DB, entryID, query string) error {
 		return err
 	}
 	if n == 0 {
-		return &Refusal{Rule: "unknown_entry", Fix: "merge needs target_id: the id of an existing entry that answers the query"}
+		return &Refusal{Rule: "unknown_entry", Fix: "merge needs entry_id: the id of an existing entry that answers the query"}
 	}
 	query = strings.TrimSpace(query)
 	if query == "" {

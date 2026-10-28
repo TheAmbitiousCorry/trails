@@ -35,11 +35,11 @@ A gap is opened by the server when a `search` returns nothing above the relevanc
 
 The gap row holds the sign the reader was standing at (the target of the session's latest successful `look`, or the home sign when that target was an entry; none when the session has not looked or its last look was a tag or kind query), the query, and the session, through which the task is reachable. A gap is resolved through `resolve_gap` by the session that opened it, with one of:
 
-- `fill`: an entry id this session wrote
-- `merge`: an existing entry id; the query is added to that entry's `read_when` aliases
+- `fill`: an `entry_id` this session wrote
+- `merge`: an existing `entry_id`; the query is added to that entry's `read_when` aliases
 - `dismiss`: a reason, 200 characters max
 
-`session_end` refuses with the session's open gaps listed while any remain. The runtime's stop hook refuses to end a turn whose Trails session is open (gaps or [edited entries](#edited-entries)), at most twice; the third attempt ends the session with `ended_by: forced` and its gaps stay open and show in the browser's gap queue. When the server is unreachable the hook passes through. A session may dismiss at most three gaps; the fourth dismissal is refused and the gap stays open.
+`session_end` refuses with the session's open gaps listed while any remain; the fix states the `resolve_gap` shape once and, under each gap, lists as `fill candidates` the entries this session wrote (a version with the session as actor, live) whose `read_when` shares at least one content term with the gap's query. The list is a suggestion and closes nothing. The runtime's stop hook refuses to end a turn whose Trails session is open (gaps or [edited entries](#edited-entries)), at most twice; the third attempt ends the session with `ended_by: forced` and its gaps stay open and show in the browser's gap queue. When the server is unreachable the hook passes through. A session may dismiss at most three gaps; the fourth dismissal is refused and the gap stays open.
 
 Open gaps are capped at twenty per project. When the cap is reached, new misses are still logged as events but no gap row opens, and the orient view carries a notice saying so.
 

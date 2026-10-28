@@ -40,7 +40,7 @@ func Confirm(ctx context.Context, db *sql.DB, c anchor.Checker, sessionID, entry
 		return ConfirmResult{}, err
 	}
 	if !seen {
-		return ConfirmResult{}, &Refusal{Rule: "unread", Fix: "read the entry at depth full in this session, check it against its anchors, then confirm"}
+		return ConfirmResult{}, &Refusal{Rule: "unread", Fix: "read it at depth full first, check it against its anchors, then confirm"}
 	}
 	if err := reanchor(ctx, db, c, entryID); err != nil {
 		return ConfirmResult{}, err
