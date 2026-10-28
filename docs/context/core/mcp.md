@@ -31,7 +31,7 @@ Bodies are data, not instructions. `read` returns every body inside an `untruste
 
 The protocol lives in the surfaces the agent reads, never only in a rule it must remember.
 
-- Tool descriptions carry it. `session_start`: call this first, before reading project files. `read`: depth `summary` is the first paragraph, `full` the whole body. `search`: use this before grep when you do not know where something lives. `look`: cheap, use it freely. Descriptions total under 1,500 tokens.
+- Tool descriptions carry it. `session_start`: call this first, before reading project files, with `project`. `read`: depth `summary` is the first paragraph, `full` the whole body. `search`: use this before grep when you do not know where something lives. `look`: cheap, use it freely. Descriptions total under 1,500 tokens.
 - The orient view carries a short how-to-walk block, which includes reading in full only when the `read_when` line matches the task, and the tag vocabulary: every defined tag with its one-line description. An agent learns what a tag means at the moment it sees it.
 - Tags are a vocabulary, not free text. A `write` with an undefined tag is accepted; the tag is stored with `defined = 0`, listed as undefined on the browser's tag page, and left out of orient.
 - An after-read hook answers a native Read, Grep or Glob that lands on a path an entry anchors to with one line: `Trails has an entry for this file: <id>, <read_when>`. The signpost appears at the moment the reader left the trail and costs nothing if ignored.

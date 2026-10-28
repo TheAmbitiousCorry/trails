@@ -167,12 +167,12 @@ input_schema: {
 }
 
 tool session_start
-description: Call this first, before reading project files. Returns session_id, which every later call must carry, contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. One call is enough to start; do not call it again.
+description: Call this first, before reading project files, with project: the id in the repo's .trail/id (omit only when the server holds one project). Returns session_id, which every later call must carry, contract (the tool-surface version) and orient: the project's root sign with its edge and entry counts, the defined tags and a how-to-walk block. One call is enough to start; do not call it again.
 input_schema: {
   "additionalProperties": false,
   "properties": {
     "project": {
-      "description": "the project id in the repo's .trail/id; optional only while the server holds one project",
+      "description": "the id in .trail/id; required when the server holds several projects",
       "type": "string"
     },
     "runtime_session_id": {
@@ -195,7 +195,7 @@ input_schema: {
 }
 
 tool write
-description: Write one entry under a sign, or update one with entry_id. Agent writes land provisional. A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. Returns entry_id and tier.
+description: Write one entry under a sign, or update one with entry_id. Caps: summary 300 words, decision 200, procedure 400, example 40, render 60, reference 100. An example is one sentence naming what to see at exactly one range anchor; explanation belongs in a summary or decision. Agent writes land provisional. A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. Returns entry_id and tier.
 input_schema: {
   "additionalProperties": false,
   "properties": {
