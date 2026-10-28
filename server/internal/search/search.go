@@ -240,8 +240,8 @@ func init() {
 	}
 }
 
-// contentTerms are the query's distinct words of three letters or more that are not stopwords, lowercased.
-func contentTerms(q string) []string {
+// ContentTerms are the query's distinct words of three letters or more that are not stopwords, lowercased.
+func ContentTerms(q string) []string {
 	seen := map[string]bool{}
 	var terms []string
 	for _, w := range wordRe.FindAllString(strings.ToLower(q), -1) {
@@ -256,7 +256,7 @@ func contentTerms(q string) []string {
 
 // coverage maps each live entry matching any content term of q to the share of those terms it contains.
 func coverage(ctx context.Context, db DBTX, q string) (map[string]float64, error) {
-	terms := contentTerms(q)
+	terms := ContentTerms(q)
 	counts := map[string]int{}
 	for _, t := range terms {
 		rows, err := db.QueryContext(ctx, `SELECT entry_id FROM entries_fts WHERE entries_fts MATCH ?`, `"`+t+`"`)
@@ -304,7 +304,7 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 	if err != nil {
 		return nil, false, err
 	}
-	small := float64(live) < minCorpus || len(contentTerms(q)) == 0
+	small := float64(live) < minCorpus || len(ContentTerms(q)) == 0
 	var cover map[string]float64
 	if !small {
 		if cover, err = coverage(ctx, db, q); err != nil {

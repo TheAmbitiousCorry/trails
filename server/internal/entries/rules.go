@@ -146,6 +146,10 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	if err != nil {
 		return nil, err
 	}
+	readWhenThreshold, err := search.Setting(ctx, w.db, "search_threshold")
+	if err != nil {
+		return nil, err
+	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	var hit *search.Hit
 	seen := 0
@@ -175,14 +179,11 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 			continue
 		}
 		ratio := h.Score / self
-		// Neighbours in one domain share nouns; only a matching read_when question makes them the same entry.
+		// Neighbours in one domain share nouns; only a read_when asking the same question makes them the same entry.
+		// Terms are compared on the read_when lines alone: a bm25 ratio counted the request's words wherever they appeared in the hit.
 		// A caller who names a resolution has already chosen the hit, so the read_when gate applies to the automatic refusal only.
 		if ratio > threshold && w.req.Resolution == "" {
-			rw, err := readWhenRatio(ctx, w, h)
-			if err != nil {
-				return nil, err
-			}
-			if rw >= 0 && rw <= threshold {
+			if rw := readWhenOverlap(w.req.ReadWhen, h.ReadWhen); rw >= 0 && rw < readWhenThreshold {
 				continue
 			}
 		}
@@ -240,32 +241,24 @@ func standsInFor(ctx context.Context, db *sql.DB, prevID, hitID string) (bool, e
 	return n > 0, err
 }
 
-// readWhenRatio is the hit's score for the request's read_when alone, over the hit's score for its own read_when. It returns -1 when the corpus cannot say, so the combined verdict stands.
-func readWhenRatio(ctx context.Context, w *writer, h *search.Hit) (float64, error) {
-	score := func(query string) (float64, error) {
-		rs, err := search.Rank(ctx, w.db, query, "")
-		if err != nil {
-			return 0, err
+// readWhenOverlap is the share of the shorter read_when's content terms that the other read_when also contains.
+// It returns -1 when either side has no content terms, so the combined verdict stands.
+func readWhenOverlap(a, b string) float64 {
+	ta, tb := search.ContentTerms(a), search.ContentTerms(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return -1
+	}
+	in := make(map[string]bool, len(tb))
+	for _, t := range tb {
+		in[t] = true
+	}
+	shared := 0
+	for _, t := range ta {
+		if in[t] {
+			shared++
 		}
-		for _, r := range rs {
-			if r.EntryID == h.EntryID {
-				return r.Score, nil
-			}
-		}
-		return 0, nil
 	}
-	self, err := score(h.ReadWhen)
-	if err != nil {
-		return 0, err
-	}
-	if self < 1e-3 {
-		return -1, nil
-	}
-	got, err := score(w.req.ReadWhen)
-	if err != nil {
-		return 0, err
-	}
-	return got / self, nil
+	return float64(shared) / float64(min(len(ta), len(tb)))
 }
 
 // selfScore is the bm25 an entry earns when its own title, read_when and first paragraph are the query.
