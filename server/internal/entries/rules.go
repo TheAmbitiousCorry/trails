@@ -24,34 +24,45 @@ import (
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "procedure": 400, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
-var RefusalRules = []string{"schema:kind", "schema:title", "schema:read_when", "schema:body", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
+var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
 
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
 }
 
 // schema is rule 1: field shapes, then the body through the Markdown adapter and the content walker.
+// Every field problem is reported together, in one fix, so a caller repairs the request once.
 func schema(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	r := w.req
+	var problems []string
 	if _, ok := defaultCaps[r.Kind]; !ok {
-		return refusal("schema:kind", "kind %q is not one of summary, decision, procedure, example, render, reference", r.Kind), nil
+		problems = append(problems, fmt.Sprintf("kind %q is not one of summary, decision, procedure, example, render, reference", r.Kind))
+	}
+	if w.prev == nil && r.ParentSignID == "" {
+		problems = append(problems, "parent_sign_id is required to create; every entry hangs under exactly one sign")
 	}
 	if r.Title == "" || utf8.RuneCountInString(r.Title) > maxTitle || strings.ContainsAny(r.Title, "\r\n") {
-		return refusal("schema:title", "title names the subject in at most %d characters, not a sentence", maxTitle), nil
+		problems = append(problems, fmt.Sprintf("title names the subject in at most %d characters, not a sentence", maxTitle))
 	}
 	if r.ReadWhen == "" || utf8.RuneCountInString(r.ReadWhen) > maxReadWhen || strings.ContainsAny(r.ReadWhen, "\r\n") {
-		return refusal("schema:read_when", "read_when is one line of 1 to %d characters naming the need this entry answers", maxReadWhen), nil
+		problems = append(problems, fmt.Sprintf("read_when is one line of 1 to %d characters naming the need this entry answers", maxReadWhen))
 	}
 	if w.prev == nil && strings.TrimSpace(r.BodyMarkdown) == "" {
-		return refusal("schema:body", "body is required to create an entry; send it as Markdown"), nil
+		problems = append(problems, "body is required to create an entry; send it as Markdown")
 	}
 	body, err := markdown.FromMarkdown(r.BodyMarkdown)
 	if err != nil {
 		var ref *content.Refusal
-		if errors.As(err, &ref) {
+		if !errors.As(err, &ref) {
+			return nil, err
+		}
+		if len(problems) == 0 {
 			return &trail.Refusal{Rule: ref.Rule, Fix: ref.Fix}, nil
 		}
-		return nil, err
+		problems = append(problems, ref.Rule+": "+ref.Fix)
+	}
+	if len(problems) > 0 {
+		return refusal("schema", "%s", strings.Join(problems, "; ")), nil
 	}
 	w.body = body
 	for _, id := range append(append([]string{}, r.Requires...), r.SeeAlso...) {

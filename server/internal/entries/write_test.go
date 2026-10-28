@@ -71,7 +71,7 @@ func TestRuleNames(t *testing.T) {
 		rule string
 	}{
 		{"schema", func(r *entries.WriteRequest) { r.BodyMarkdown = "<div>x</div>" }, "unsupported: html block"},
-		{"schema title", func(r *entries.WriteRequest) { r.Title = strings.Repeat("t", 81) }, "schema:title"},
+		{"schema title", func(r *entries.WriteRequest) { r.Title = strings.Repeat("t", 81) }, "schema"},
 		{"cap", func(r *entries.WriteRequest) { r.BodyMarkdown = "one two three four five six" }, "split this"},
 		{"anchor missing", func(r *entries.WriteRequest) { r.Kind = "summary"; r.Anchors = nil }, "anchor"},
 		{"anchor decided", func(r *entries.WriteRequest) { r.DecidedBy = "" }, "anchor"},
@@ -85,7 +85,7 @@ func TestRuleNames(t *testing.T) {
 		}, "anchor"},
 		{"fan-out", func(r *entries.WriteRequest) { r.ParentSignID = "fork" }, "split this fork"},
 		{"unreachable unknown", func(r *entries.WriteRequest) { r.ParentSignID = "nowhere" }, "unreachable"},
-		{"unreachable empty", func(r *entries.WriteRequest) { r.ParentSignID = "" }, "unreachable"},
+		{"parent missing on create", func(r *entries.WriteRequest) { r.ParentSignID = "" }, "schema"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,10 +274,12 @@ func TestUpdateKeepsOmittedFields(t *testing.T) {
 
 func TestCreateWithoutRequiredFieldsIsRefused(t *testing.T) {
 	st, c := open(t)
-	for rule, edit := range map[string]func(*entries.WriteRequest){
-		"schema:title":     func(r *entries.WriteRequest) { r.Title = "" },
-		"schema:read_when": func(r *entries.WriteRequest) { r.ReadWhen = "" },
-		"schema:body":      func(r *entries.WriteRequest) { r.BodyMarkdown = "" },
+	for want, edit := range map[string]func(*entries.WriteRequest){
+		"title names the subject":    func(r *entries.WriteRequest) { r.Title = "" },
+		"read_when is one line":      func(r *entries.WriteRequest) { r.ReadWhen = "" },
+		"body is required to create": func(r *entries.WriteRequest) { r.BodyMarkdown = "" },
+		"parent_sign_id is required": func(r *entries.WriteRequest) { r.ParentSignID = "" },
+		"kind \"how\" is not one of": func(r *entries.WriteRequest) { r.Kind = "how" },
 	} {
 		req := decision("Needs fields", "A body.")
 		edit(&req)
@@ -285,8 +287,25 @@ func TestCreateWithoutRequiredFieldsIsRefused(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Refusal == nil || res.Refusal.Rule != rule {
-			t.Errorf("refusal = %+v, want %s", res.Refusal, rule)
+		if res.Refusal == nil || res.Refusal.Rule != "schema" || !strings.Contains(res.Refusal.Fix, want) {
+			t.Errorf("refusal = %+v, want schema naming %q", res.Refusal, want)
+		}
+	}
+}
+
+func TestSchemaReportsEveryProblemAtOnce(t *testing.T) {
+	st, c := open(t)
+	req := entries.WriteRequest{Actor: "s-1", Kind: "how"}
+	res, err := entries.Write(context.Background(), st.DB, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Refusal == nil || res.Refusal.Rule != "schema" {
+		t.Fatalf("refusal = %+v, want schema", res.Refusal)
+	}
+	for _, want := range []string{"kind \"how\"", "parent_sign_id is required", "title names", "read_when is one line", "body is required"} {
+		if !strings.Contains(res.Refusal.Fix, want) {
+			t.Errorf("fix %q does not name %q", res.Refusal.Fix, want)
 		}
 	}
 }
