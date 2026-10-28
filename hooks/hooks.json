@@ -1,5 +1,5 @@
 {
-  "description": "Trails: register the session and start the server if needed, turn a native read of a mapped file back to its entry until the agent has read it, record the files a shell command reads as off-trail without denying them, signpost entries anchored to files the agent edits, and hold the turn open while gaps or those entries are unresolved",
+  "description": "Trails: register the session and start the server if needed, turn a native read of a mapped file back to its entry until the agent has read it, record the files a shell command reads as off-trail without denying them, signpost entries anchored to files the agent edits, and hold the turn open while gaps or those entries are unresolved, with subagents addressed by their own runtime id and held the same way",
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-session-start.sh\"", "timeout": 10 } ] }
@@ -12,6 +12,12 @@
       { "matcher": "Bash", "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-bash-read.sh\"", "timeout": 5 } ] }
     ],
     "Stop": [
+      { "hooks": [ { "type": "command", "command": "TRAILS_BLOCK_FORMAT=block \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-stop.sh\"", "timeout": 10 } ] }
+    ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "TRAILS_CONTEXT_FORMAT=hook-json \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-subagent-start.sh\"", "timeout": 5 } ] }
+    ],
+    "SubagentStop": [
       { "hooks": [ { "type": "command", "command": "TRAILS_BLOCK_FORMAT=block \"${CLAUDE_PLUGIN_ROOT}/adapters/generic/hooks/trails-stop.sh\"", "timeout": 10 } ] }
     ]
   }

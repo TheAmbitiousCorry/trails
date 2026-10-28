@@ -12,10 +12,12 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | Reply the agent sees | stdout JSON `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `hookSpecificOutput.additionalContext` | `additional_context` |
 | Shell read | `PostToolUse`, matcher `Bash`; paths taken from `tool_input.command` tokens that exist as files, recorded as off-trail and never denied | n/a | n/a | n/a |
 | After-edit event | `PostToolUse`, matcher `Edit\|Write\|MultiEdit\|NotebookEdit` | none recorded: no edit gate | none recorded: no edit gate | `afterFileEdit`, unverified |
+| Subagent start | `SubagentStart`, prints `Trails project` and `Trails runtime_session_id` | none recorded | none recorded | none recorded |
 | Stop event | `Stop` | `Stop` | `AfterAgent` | `stop` |
 | Block the stop | `{"decision":"block","reason":...}` or exit 2 | same | `{"decision":"deny","reason":...}` or exit 2 | `{"followup_message":...}`, a follow-up turn, capped by `loop_limit` |
+| Subagent stop | `SubagentStop`, same block form as `Stop` | none recorded | none recorded | none recorded |
 | Re-entry visible | `stop_hook_active` | `stop_hook_active` | `stop_hook_active` | `loop_count` |
-| Runtime session id | stdin `session_id` | stdin `session_id` | stdin `session_id`, env `GEMINI_SESSION_ID` | stdin `conversation_id` |
+| Runtime session id | stdin `session_id`, with `/agent_id` appended inside a subagent | stdin `session_id` | stdin `session_id`, env `GEMINI_SESSION_ID` | stdin `conversation_id` |
 | Path field on read | verified: Read `tool_input.file_path`, Grep and Glob `tool_input.path` | n/a | unverified, tool param is `file_path` | unverified |
 | Path field on edit | `tool_input.file_path` | n/a | n/a | `file_path` (unverified) |
 

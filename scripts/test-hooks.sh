@@ -293,4 +293,16 @@ expect "shell read of an anchored file" ".hookSpecificOutput.additionalContext =
 out=$(printf '{"session_id":"rt-shell","tool_name":"Bash","tool_input":{"command":"echo hello && ls"}}' | "$hooks/trails-bash-read.sh")
 expect_empty "shell command naming no file" "$out"
 
+# Subagents: the payload's agent_id extends the runtime id, the start hook prints both lines, and a stop with no open session for that id passes.
+got=$(sh -c '. "$1/trails-common.sh"; trails_session_id "{\"session_id\":\"rt-x\",\"agent_id\":\"ag-1\"}"' sh "$hooks")
+[ "$got" = rt-x/ag-1 ] || fail "subagent runtime id: got '$got'"
+got=$(sh -c '. "$1/trails-common.sh"; trails_session_id "{\"session_id\":\"rt-x\"}"' sh "$hooks")
+[ "$got" = rt-x ] || fail "runtime id without agent_id: got '$got'"
+out=$(printf '{"session_id":"rt-x","agent_id":"ag-1","hook_event_name":"SubagentStart"}' | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-subagent-start.sh")
+expect "subagent start" '.hookSpecificOutput.hookEventName == "SubagentStart" and .hookSpecificOutput.additionalContext == "Trails project: '"$rid"'\nTrails runtime_session_id: rt-x/ag-1"' "$out"
+out=$(printf '{"session_id":"rt-x","agent_id":"ag-1","cwd":"%s"}' "$tmp/noid" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-subagent-start.sh")
+expect_empty "subagent start without a project id" "$out"
+out=$(printf '{"session_id":"rt-x","agent_id":"ag-1"}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
+expect_empty "subagent stop without an open session" "$out"
+
 echo "hooks ok"

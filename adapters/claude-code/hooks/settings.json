@@ -51,6 +51,28 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_CONTEXT_FORMAT=hook-json \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-subagent-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TRAILS_BLOCK_FORMAT=block \"$CLAUDE_PROJECT_DIR/.trail/hooks/trails-stop.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

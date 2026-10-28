@@ -31,12 +31,15 @@ emit_context() {
 }
 
 # trails_session_id JSON prints the runtime session id from the env variable named by TRAILS_SESSION_ENV, else from the stdin field TRAILS_SESSION_FIELD.
+# A payload with a non-empty agent_id comes from a subagent that shares its parent's session_id, so the id is session_id/agent_id.
 trails_session_id() {
   case "${TRAILS_SESSION_ENV:-}" in
     ''|*[!A-Za-z0-9_]*) ;;
     *) eval "v=\${$TRAILS_SESSION_ENV:-}"; [ -z "$v" ] || { printf '%s' "$v"; return; } ;;
   esac
-  printf '%s' "$1" | field_of "${TRAILS_SESSION_FIELD:-session_id}"
+  _sid=$(printf '%s' "$1" | field_of "${TRAILS_SESSION_FIELD:-session_id}")
+  _aid=$(printf '%s' "$1" | field_of agent_id)
+  printf '%s' "$_sid${_sid:+${_aid:+/$_aid}}"
 }
 
 # trails_init JSON sets TRAILS_REPO, TRAILS_ROOT, TRAILS_PROJECT and, when TRAILS_URL is unset, TRAILS_URL from TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else the address in $HOME/.trail/server while its pid is alive, else 127.0.0.1:7777.
