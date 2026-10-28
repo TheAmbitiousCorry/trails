@@ -21,7 +21,6 @@ func open(t *testing.T) (*store.Store, anchor.Checker) {
 	t.Cleanup(func() { st.Close() })
 	c := anchor.Checker{Repo: st.Repo}
 	// These tests exercise the relevance threshold, which the small-corpus rule would skip.
-	st.DB.Exec(`UPDATE settings SET value = '1' WHERE key = 'search_min_corpus'`)
 	// Unrelated entries keep bm25 idf positive for terms unique to the entry under test.
 	for i, topic := range []string{"harbour tides", "orchard grafting", "violin varnish", "glacier survey", "pottery kiln", "beekeeping winter"} {
 		write(t, st, c, entries.WriteRequest{Actor: "user", ParentSignID: "root", Kind: "decision", Title: "Notes on " + topic,
@@ -131,15 +130,14 @@ func TestSmallCorpusAnyMatchIsAHit(t *testing.T) {
 	write(t, st, c, decision("s-1", "root", "Harbour tides", "Tides follow the moon."))
 	ctx := context.Background()
 
-	// "project" is in both live entries, so its bm25 weight is near zero.
+	// "project" is in both live entries, so its bm25 weight is near zero; coverage keeps them anyway.
 	hits, miss, err := search.Query(ctx, st.DB, "project", "", 5)
 	if err != nil || miss || len(hits) != 2 {
-		t.Fatalf("three-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
+		t.Fatalf("two-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
 	}
-	// At the cap the threshold applies: one matched term out of three is a miss.
-	st.DB.Exec(`UPDATE settings SET value = '3' WHERE key = 'search_min_corpus'`)
+	// Coverage applies however small the corpus: one matched term out of three is a miss.
 	if _, miss, _ := search.Query(ctx, st.DB, "project bananas trucks", "", 5); !miss {
-		t.Error("corpus at search_min_corpus still skips the threshold")
+		t.Error("small corpus skips the coverage rule")
 	}
 }
 
@@ -164,5 +162,22 @@ func TestThresholdIsTermCoverage(t *testing.T) {
 	hits, miss, err = search.Query(ctx, st.DB, "you number credit notes after a refund", "", 5)
 	if err != nil || miss || len(hits) == 0 || hits[0].EntryID != e.EntryID {
 		t.Errorf("own read_when: hits=%+v miss=%v err=%v", hits, miss, err)
+	}
+}
+
+func TestShortQueryNeedsEveryTerm(t *testing.T) {
+	st, c := open(t)
+	ctx := context.Background()
+	e := write(t, st, c, entries.WriteRequest{Actor: "user", ParentSignID: "root", Kind: "decision", Title: "Collection handles",
+		ReadWhen: "you pass a collection around", BodyMarkdown: "A collection is passed by handle.", DecidedBy: "ana", DecidedAt: "2026-10-27"})
+
+	// Half the terms is enough at the default threshold, but a two-term query must match both.
+	hits, miss, err := search.Query(ctx, st.DB, "collection membership", "", 5)
+	if err != nil || !miss || len(hits) != 0 {
+		t.Errorf("one of two terms: hits=%+v miss=%v err=%v", hits, miss, err)
+	}
+	hits, miss, err = search.Query(ctx, st.DB, "collection", "", 5)
+	if err != nil || miss || len(hits) == 0 || hits[0].EntryID != e.EntryID {
+		t.Errorf("single term: hits=%+v miss=%v err=%v", hits, miss, err)
 	}
 }

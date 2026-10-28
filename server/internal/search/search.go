@@ -38,7 +38,6 @@ var defaults = map[string]float64{
 	"search_threshold":     0.5,
 	"duplicate_threshold":  0.8,
 	"paraphrase_threshold": 0.5,
-	"search_min_corpus":    20,
 	"open_gap_cap":         20,
 	"dismiss_cap":          3,
 }
@@ -286,7 +285,7 @@ func coverage(ctx context.Context, db DBTX, q string) (map[string]float64, error
 // and words under three letters), best first by bm25. miss is true when none does. bm25 alone cannot tell a miss: one shared noun in
 // a corpus of a hundred entries scores like a real hit, while a two-word question against a long entry scores like noise.
 // A query with no content terms is matched on its raw words and never misses while something matches.
-// Below search_min_corpus live entries any FTS match is a hit and the threshold is skipped.
+// A query of one or two content terms needs every term, whatever search_threshold says.
 func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []Hit, miss bool, err error) {
 	all, err := Rank(ctx, db, q, taskType)
 	if err != nil {
@@ -296,20 +295,16 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 	if err != nil {
 		return nil, false, err
 	}
-	var live int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE tier != 'dormant' AND superseded_by IS NULL`).Scan(&live); err != nil {
-		return nil, false, err
-	}
-	minCorpus, err := Setting(ctx, db, "search_min_corpus")
-	if err != nil {
-		return nil, false, err
-	}
-	small := float64(live) < minCorpus || len(ContentTerms(q)) == 0
+	small := len(ContentTerms(q)) == 0
 	var cover map[string]float64
 	if !small {
 		if cover, err = coverage(ctx, db, q); err != nil {
 			return nil, false, err
 		}
+	}
+	// With one or two content terms a partial match is a coin flip, so every term must be present.
+	if n := len(ContentTerms(q)); n >= 1 && n <= 2 {
+		threshold = 1
 	}
 	for _, h := range all {
 		if small || cover[h.EntryID] >= threshold {
