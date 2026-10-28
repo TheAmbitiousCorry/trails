@@ -231,7 +231,29 @@ func signPath(ctx context.Context, db DBTX, signID string) ([]string, error) {
 	return path, nil
 }
 
-// Query returns up to limit hits whose bm25 score clears search_threshold. miss is true when none does.
+// SelfScore is the bm25 an entry earns when its own title, read_when and first paragraph are the query.
+func SelfScore(ctx context.Context, db DBTX, entryID string) (float64, error) {
+	q, err := EntryQuery(ctx, db, entryID)
+	if err != nil {
+		return 0, err
+	}
+	hits, err := Rank(ctx, db, q, "")
+	if err != nil {
+		return 0, err
+	}
+	for _, h := range hits {
+		if h.EntryID == entryID {
+			return h.Score, nil
+		}
+	}
+	return 0, nil
+}
+
+// minSelfScore is the self score under which the corpus cannot say how good a match is.
+const minSelfScore = 1e-3
+
+// Query returns up to limit hits whose bm25 score, as a fraction of that entry's score against its own text, reaches search_threshold.
+// miss is true when none does. A self score under minSelfScore keeps the hit.
 // Below search_min_corpus live entries bm25 gives common terms no weight, so any FTS match is a hit and the threshold is skipped.
 func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []Hit, miss bool, err error) {
 	all, err := Rank(ctx, db, q, taskType)
@@ -252,7 +274,15 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 	}
 	small := float64(live) < minCorpus
 	for _, h := range all {
-		if small || h.Score >= threshold {
+		if small {
+			hits = append(hits, h)
+			continue
+		}
+		self, err := SelfScore(ctx, db, h.EntryID)
+		if err != nil {
+			return nil, false, err
+		}
+		if self < minSelfScore || h.Score/self >= threshold {
 			hits = append(hits, h)
 		}
 	}

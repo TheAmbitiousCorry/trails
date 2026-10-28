@@ -56,7 +56,7 @@ func TestHitsCarrySignPath(t *testing.T) {
 
 	var rootTitle string
 	st.DB.QueryRow(`SELECT title FROM signs WHERE id = 'root'`).Scan(&rootTitle)
-	hits, miss, err := search.Query(context.Background(), st.DB, "credit note numbering", "", 5)
+	hits, miss, err := search.Query(context.Background(), st.DB, "Credit note numbering you need Credit note numbering Credit notes continue the invoice sequence", "", 5)
 	if err != nil || miss || len(hits) != 1 {
 		t.Fatalf("hits = %+v miss=%v err=%v", hits, miss, err)
 	}
@@ -66,7 +66,7 @@ func TestHitsCarrySignPath(t *testing.T) {
 	if h := hits[0]; h.EntryID != "credit-note-numbering" || h.Title == "" || h.ReadWhen == "" || h.Tier != "verified" || h.Kind != "decision" {
 		t.Errorf("hit fields = %+v", h)
 	}
-	hits, _, _ = search.Query(context.Background(), st.DB, "refund approver", "", 5)
+	hits, _, _ = search.Query(context.Background(), st.DB, "Refund approval limits you need Refund approval limits Refunds above the limit need a second approver", "", 5)
 	if len(hits) != 1 || strings.Join(hits[0].SignPath, " > ") != rootTitle+" > Billing" {
 		t.Errorf("refund hit = %+v", hits)
 	}
@@ -110,7 +110,11 @@ func TestMissAndMalformedQueries(t *testing.T) {
 
 func TestSeededEntryIsSearchable(t *testing.T) {
 	st, _ := open(t)
-	hits, miss, err := search.Query(context.Background(), st.DB, "agents walk wiki sign", "", 5)
+	q, err := search.EntryQuery(context.Background(), st.DB, "trail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, miss, err := search.Query(context.Background(), st.DB, q, "", 5)
 	if err != nil || miss || hits[0].EntryID != "trail" {
 		t.Errorf("seed search = %+v miss=%v err=%v", hits, miss, err)
 	}
@@ -124,19 +128,38 @@ func TestSmallCorpusAnyMatchIsAHit(t *testing.T) {
 	t.Cleanup(func() { st.Close() })
 	c := anchor.Checker{Repo: st.Repo}
 	write(t, st, c, decision("s-1", "root", "Project wiki rules", "The project wiki lives in Trail."))
+	write(t, st, c, decision("s-1", "root", "Harbour tides", "Tides follow the moon."))
 	ctx := context.Background()
 
 	// "project" is in both live entries, so its bm25 weight is near zero.
 	hits, miss, err := search.Query(ctx, st.DB, "project", "", 5)
 	if err != nil || miss || len(hits) != 2 {
-		t.Fatalf("two-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
+		t.Fatalf("three-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
 	}
-	if hits[0].Score >= 0.5 {
-		t.Fatalf("score %v clears the threshold, so this test would not prove the rule", hits[0].Score)
+	if self, _ := search.SelfScore(ctx, st.DB, hits[0].EntryID); self >= 1e-3 && hits[0].Score/self >= 0.5 {
+		t.Fatalf("ratio %v clears the threshold, so this test would not prove the rule", hits[0].Score/self)
 	}
 
-	st.DB.Exec(`UPDATE settings SET value = '2' WHERE key = 'search_min_corpus'`)
+	st.DB.Exec(`UPDATE settings SET value = '3' WHERE key = 'search_min_corpus'`)
 	if _, miss, _ := search.Query(ctx, st.DB, "project", "", 5); !miss {
 		t.Error("corpus at search_min_corpus still skips the threshold")
+	}
+}
+
+func TestThresholdIsARatioOfSelfScore(t *testing.T) {
+	st, c := open(t)
+	ctx := context.Background()
+	e := write(t, st, c, entries.WriteRequest{Actor: "user", ParentSignID: "root", Kind: "decision", Title: "Credit note numbering",
+		ReadWhen: "you number credit notes after a refund", BodyMarkdown: "Credit notes continue the invoice sequence.", DecidedBy: "ana", DecidedAt: "2026-10-27"})
+
+	// One shared noun scores above the old absolute 0.5 but is a small share of the entry's own score.
+	hits, miss, err := search.Query(ctx, st.DB, "roadmap decision log, graduate and decline notes", "", 5)
+	if err != nil || !miss || len(hits) != 0 {
+		t.Errorf("one shared noun: hits=%+v miss=%v err=%v", hits, miss, err)
+	}
+
+	hits, miss, err = search.Query(ctx, st.DB, "you number credit notes after a refund", "", 5)
+	if err != nil || miss || len(hits) == 0 || hits[0].EntryID != e.EntryID {
+		t.Errorf("own read_when: hits=%+v miss=%v err=%v", hits, miss, err)
 	}
 }
