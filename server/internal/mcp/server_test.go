@@ -86,8 +86,8 @@ func TestVerticalThread(t *testing.T) {
 
 	res, err := sess.CallTool(ctx, &sdk.CallToolParams{Name: "session_start", Arguments: map[string]any{"task": "write the monthly report", "task_type": "report"}})
 	start := structured(t, res, err)
-	if start["contract"] != float64(mcp.Contract) {
-		t.Errorf("contract = %v", start["contract"])
+	if start["contract"] != float64(3) || mcp.Contract != 3 {
+		t.Errorf("contract = %v, mcp.Contract = %d, want 3", start["contract"], mcp.Contract)
 	}
 	sid, _ := start["session_id"].(string)
 	if sid == "" {

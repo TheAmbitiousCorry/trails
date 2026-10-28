@@ -28,7 +28,7 @@ Every relationship between entries is a typed edge in one table; backlinks are a
 
 | Relation | Direction | Served on `read` |
 |---|---|---|
-| `requires` | directed | At depth `full`, the target's body in full before this entry, see [signs](./signs.md#prerequisites) |
+| `requires` | directed | At depth `full`, the target's body in full before this entry; listed with read state on a search hit, and a summary read is refused until each is read at `full`, see [signs](./signs.md#prerequisites) |
 | `see_also` | symmetric | As an edge line: id, title, `read_when`, tier |
 | `supersedes` | directed | The superseded entry leaves default search and carries the link back |
 | `conflicts_with` | symmetric | Set by the server when an agent write collides with a verified entry; shown as a link on the entry page, where a human resolves the pair with a Supersede button |

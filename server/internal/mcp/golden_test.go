@@ -18,6 +18,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/content"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/entries"
+	"github.com/TheAmbitiousCorry/trails/internal/mcp"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
@@ -30,7 +31,7 @@ const goldenPath = "testdata/contract.golden"
 func refusalRules() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, list := range [][]string{trail.RefusalRules, entries.RefusalRules, signs.RefusalRules, content.RefusalRules, markdown.RefusalRules} {
+	for _, list := range [][]string{trail.RefusalRules, entries.RefusalRules, signs.RefusalRules, content.RefusalRules, markdown.RefusalRules, mcp.RefusalRules} {
 		for _, r := range list {
 			if !seen[r] {
 				seen[r] = true
@@ -64,7 +65,7 @@ func renderContract(t *testing.T, tools []*sdk.Tool) string {
 	sorted := append([]*sdk.Tool{}, tools...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	var b strings.Builder
-	b.WriteString("contract 1\n")
+	b.WriteString("contract " + strconv.Itoa(mcp.Contract) + "\n")
 	for _, tool := range sorted {
 		schema, err := json.MarshalIndent(tool.InputSchema, "", "  ")
 		if err != nil {

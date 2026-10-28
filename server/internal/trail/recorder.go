@@ -179,3 +179,21 @@ func ReadAtFull(ctx context.Context, db *sql.DB, sessionID, entryID string) (boo
 		sessionID, entryID).Scan(&n)
 	return n > 0, err
 }
+
+// FullReadIDs returns the entries the session has been served at full by completed reads, in one query.
+func FullReadIDs(ctx context.Context, db *sql.DB, sessionID string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT target FROM events WHERE session_id = ? AND tool = 'read' AND depth = 'full' AND result = 'ok'`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
