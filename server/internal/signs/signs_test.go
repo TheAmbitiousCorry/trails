@@ -158,6 +158,45 @@ func TestTagLookGroupsByHomeSign(t *testing.T) {
 	}
 }
 
+func TestWithinListsEntriesPastFanOutCap(t *testing.T) {
+	db := open(t)
+	db.Exec(`UPDATE settings SET value = '8' WHERE key = 'fan_out_cap'`)
+	ctx := context.Background()
+	addSign(t, db, "wide", "root")
+	addSign(t, db, "left", "wide")
+	addSign(t, db, "right", "wide")
+	// Twelve procedures in one sign: more than the default cap of eight.
+	for i := 1; i <= 12; i++ {
+		sign := "wide"
+		if i > 6 {
+			sign = "left"
+		}
+		addEntry(t, db, fmt.Sprintf("p%d", i), sign, "procedure", "step", "ops")
+	}
+	v, err := signs.Look(ctx, db, signs.LookRequest{Kind: "procedure", Within: "wide"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Edges) != 12 {
+		t.Fatalf("within edges = %d, want 12", len(v.Edges))
+	}
+	for _, e := range v.Edges {
+		if e.Type != "entry" {
+			t.Errorf("within edge = %+v, want entry", e)
+		}
+	}
+	// Across the tree the same matches fold into their home signs.
+	v, err = signs.Look(ctx, db, signs.LookRequest{Kind: "procedure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range v.Edges {
+		if e.Type != "sign" {
+			t.Errorf("tree-wide edge = %+v, want sign", e)
+		}
+	}
+}
+
 func TestDepthAndScent(t *testing.T) {
 	db := open(t)
 	ctx := context.Background()

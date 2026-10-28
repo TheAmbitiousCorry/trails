@@ -53,7 +53,7 @@ Prerequisites are for ordering that matters: a client's constraints before its r
 
 ## Virtual signs
 
-The tree is one axis. Tags are every other axis. `look` accepts a tag, a kind, or both with an optional `within` sign, and returns a computed sign in exactly the shape of a stored one: a summary line naming the query, and edges for the matching entries. When more than the fan-out cap match, the edges are the home signs that contain matches, each with its match count, so the reader descends one more hop. `look(tag: billing, within: shopify-app)` is one cell of a matrix; `look(kind: decision)` gathers every decision in the project.
+The tree is one axis. Tags are every other axis. `look` accepts a tag, a kind, or both with an optional `within` sign, and returns a computed sign in exactly the shape of a stored one: a summary line naming the query, and edges for the matching entries. For a query across the tree (no `within`), when more than the fan-out cap match, the edges are the home signs that contain matches, each with its match count, so the reader descends one more hop. A query with `within` lists every match as an entry edge, whatever the count. `look(tag: billing, within: shopify-app)` is one cell of a matrix; `look(kind: decision)` gathers every decision in the project.
 
 A virtual sign is never stored. An entry has one home in the tree and appears on any number of virtual signs. Scent keywords on a tree edge include the tags found below it, so a reader on the domain axis can see which branches touch a tag before descending.
 

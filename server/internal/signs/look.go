@@ -259,7 +259,8 @@ func (p *project) virtual(req LookRequest, limit int) (View, error) {
 		v.Parent = p.signs[req.Within].Title
 	}
 
-	if len(matches) <= limit {
+	// A within query always lists its matches: the group edge's read_when promises them.
+	if len(matches) <= limit || req.Within != "" {
 		for _, e := range matches {
 			v.Edges = append(v.Edges, entryEdge(p, e))
 		}
