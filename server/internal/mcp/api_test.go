@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -471,5 +472,78 @@ func TestPreReadListsEveryEntry(t *testing.T) {
 	got = pre()
 	if got["decision"] != "checked" || got["total"] != float64(3) || len(signpostIDs(got)) != 3 || got["entry_id"] != want[0] {
 		t.Errorf("after reading one = %v", got)
+	}
+}
+
+func TestRegisterIDBoundIs409(t *testing.T) {
+	reg, addr := serveRepos(t)
+	first, second := t.TempDir(), t.TempDir()
+	id, err := store.EnsureID(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(second, ".trail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, ".trail", "id"), []byte(id+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := post(t, addr, "/api/projects", map[string]any{"repo": first}); code != 200 {
+		t.Fatalf("first register = %d", code)
+	}
+	code, out := post(t, addr, "/api/projects", map[string]any{"repo": second})
+	fix, _ := out["fix"].(string)
+	if code != http.StatusConflict || out["error"] != "id_bound" || !strings.Contains(fix, "belongs to the repository at "+first) {
+		t.Fatalf("second register = %d %v", code, out)
+	}
+	if p, _ := reg.ByID(id); p.Repo() != first {
+		t.Errorf("repo = %q after refusal", p.Repo())
+	}
+	if code, _ := post(t, addr, "/api/projects", map[string]any{"repo": second, "move": true}); code != 200 {
+		t.Fatalf("move register = %d", code)
+	}
+	if p, _ := reg.ByID(id); p.Repo() != second {
+		t.Errorf("repo = %q after move", p.Repo())
+	}
+}
+
+func gitWorktrees(t *testing.T) (main, linked string) {
+	t.Helper()
+	main = t.TempDir()
+	linked = filepath.Join(t.TempDir(), "wt")
+	if _, err := store.EnsureID(main); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, main, "src/a.go")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"}, {"worktree", "add", "-q", linked}} {
+		if out, err := exec.Command("git", append([]string{"-C", main}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return main, linked
+}
+
+func TestHookPathInASecondCheckoutIsRelativised(t *testing.T) {
+	main, linked := gitWorktrees(t)
+	reg, addr := serveRepos(t, main)
+	if _, err := reg.Open(linked); err != nil {
+		t.Fatal(err)
+	}
+	a := newAgent(t, addr, "rt-wt")
+	id := a.ok("write", map[string]any{"parent_sign_id": "root", "kind": "decision", "decided_by": "ana", "decided_at": "2026-10-27", "title": "A", "read_when": "you touch a",
+		"body": "About a.", "anchors": []map[string]any{{"type": "file", "path": "src/a.go"}}})["entry_id"].(string)
+	got := postAPI(t, addr, "/api/edited", map[string]any{"runtime_session_id": "rt-wt", "path": filepath.Join(linked, "src/a.go")})
+	entries, _ := got["entries"].([]any)
+	if len(entries) != 1 || entries[0].(map[string]any)["entry_id"] != id {
+		t.Fatalf("edited in the second checkout = %v", got)
+	}
+}
+
+func TestStopCheckNamesTheSession(t *testing.T) {
+	_, addr, _ := startRepoServer(t)
+	a := newAgent(t, addr, "rt-name")
+	got := postAPI(t, addr, "/api/stop-check", map[string]any{"runtime_session_id": "rt-name"})
+	if got["session_id"] != a.sid || got["task"] != "test walk" {
+		t.Errorf("stop-check = %v", got)
 	}
 }

@@ -19,27 +19,36 @@ type Project struct {
 
 	fetch anchor.Fetcher
 	mu    sync.RWMutex
-	repo  string
+	paths []string
 }
 
-func newProject(st *store.Store, repo string) *Project {
-	return &Project{ID: st.ProjectID, Store: st, repo: repo, fetch: anchor.NewFetch(&net.Resolver{})}
+func newProject(st *store.Store, paths []string) *Project {
+	return &Project{ID: st.ProjectID, Store: st, paths: paths, fetch: anchor.NewFetch(&net.Resolver{})}
 }
 
 func (p *Project) DB() *sql.DB { return p.Store.DB }
 
-// Repo is the checkout anchors resolve against. Read it per call: a later open of the same id replaces it.
+// Repo is the primary checkout, the one anchors resolve against. Read it per call: a later open of the same id can replace it.
 func (p *Project) Repo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.repo
+	if len(p.paths) == 0 {
+		return ""
+	}
+	return p.paths[0]
 }
 
-func (p *Project) setRepo(repo string) (old string) {
+// Paths lists every checkout bound to the project, primary first.
+func (p *Project) Paths() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return append([]string(nil), p.paths...)
+}
+
+func (p *Project) setPaths(paths []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	old, p.repo = p.repo, repo
-	return old
+	p.paths = paths
 }
 
 // Checker is an anchor checker for the project's current repo.

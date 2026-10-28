@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,18 +47,18 @@ func NewRegistry(home string, sweepEvery time.Duration) *Registry {
 		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string][]string{}}
 }
 
-// IDBound is returned by Open when the repo's id is already bound to a different repo that still exists.
+// IDBound is returned by Open when the repo's id is bound to a different repository whose checkout still exists.
 type IDBound struct{ ID, Bound, Repo string }
 
 func (e *IDBound) Error() string {
-	return fmt.Sprintf(".trail/id %s is already bound to %s; give %s its own id (delete its .trail/id and run trails register) or, if the project moved, run trails register --move", e.ID, e.Bound, e.Repo)
+	return fmt.Sprintf(".trail/id %s belongs to the repository at %s; %s is a different repository, so give it its own id (delete its .trail/id and run trails register), or run trails register --move if the project moved", e.ID, e.Bound, e.Repo)
 }
 
 // Open registers the project in repo, which must hold .trail/id, and returns it.
-// An id already bound to a different repo that still exists on disk is refused with *IDBound; a bound path that is gone is a move.
+// A repo that is another checkout of the repository already bound to the id is attached beside it; a different repository is refused with *IDBound. Bound paths gone from disk do not count.
 func (r *Registry) Open(repo string) (*Project, error) { return r.open(repo, false) }
 
-// OpenMove is Open that re-points a bound id at repo even when the old repo still exists.
+// OpenMove is Open that makes repo the primary checkout even when it is a different repository.
 func (r *Registry) OpenMove(repo string) (*Project, error) { return r.open(repo, true) }
 
 func (r *Registry) open(repo string, move bool) (*Project, error) {
@@ -71,41 +73,115 @@ func (r *Registry) open(repo string, move bool) (*Project, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	p, held := r.byID[id]
-	if !move {
-		bound := ""
-		if held {
-			bound = p.Repo()
-		} else if b, err := os.ReadFile(filepath.Join(r.home, id, "repo")); err == nil {
-			bound = strings.TrimSpace(string(b))
-		}
-		if bound != "" && bound != repo {
-			if fi, err := os.Stat(bound); err == nil && fi.IsDir() {
-				return nil, &IDBound{ID: id, Bound: bound, Repo: repo}
-			}
-		}
+	var bound []string
+	if held {
+		bound = p.Paths()
+	} else {
+		bound = readRepoFile(r.home, id)
+	}
+	paths := existingDirs(bound)
+	switch {
+	case move:
+		paths = append([]string{repo}, without(paths, repo)...)
+	case slices.Contains(paths, repo):
+	case len(paths) == 0:
+		paths = []string{repo}
+	case sameRepository(paths[0], repo):
+		paths = append(paths, repo)
+		log.Printf("trails: project %s also at %s", id, repo)
+	default:
+		return nil, &IDBound{ID: id, Bound: paths[0], Repo: repo}
 	}
 	if held {
-		if old := p.setRepo(repo); old != repo {
-			log.Printf("trails: project %s moved from %s to %s", id, old, repo)
+		if old := p.Repo(); old != paths[0] {
+			log.Printf("trails: project %s moved from %s to %s", id, old, paths[0])
 		}
-		return p, writeRepoFile(r.home, id, repo)
+		p.setPaths(paths)
+		return p, writeRepoFile(r.home, id, paths)
 	}
 	st, err := store.Open(r.home, repo)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeRepoFile(r.home, id, repo); err != nil {
+	if err := writeRepoFile(r.home, id, paths); err != nil {
 		st.Close()
 		return nil, err
 	}
-	p = newProject(st, repo)
+	p = newProject(st, paths)
 	r.byID[id] = p
 	r.startSweep(p)
 	return p, nil
 }
 
-func writeRepoFile(home, id, repo string) error {
-	return os.WriteFile(filepath.Join(home, id, "repo"), []byte(repo+"\n"), 0o600)
+func readRepoFile(home, id string) []string {
+	b, err := os.ReadFile(filepath.Join(home, id, "repo"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func writeRepoFile(home, id string, paths []string) error {
+	return os.WriteFile(filepath.Join(home, id, "repo"), []byte(strings.Join(paths, "\n")+"\n"), 0o600)
+}
+
+func existingDirs(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func without(paths []string, drop string) []string {
+	var out []string
+	for _, p := range paths {
+		if p != drop {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func gitOut(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
+	return strings.TrimSpace(string(b)), err
+}
+
+func sameRepository(a, b string) bool {
+	ca, errA := gitOut(a, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	cb, errB := gitOut(b, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if errA == nil && errB == nil {
+		return filepath.Clean(ca) == filepath.Clean(cb)
+	}
+	ua, errA := gitOut(a, "config", "--get", "remote.origin.url")
+	ub, errB := gitOut(b, "config", "--get", "remote.origin.url")
+	return errA == nil && errB == nil && ua != "" && ua == ub
+}
+
+// dropMissingPaths forgets bound checkouts that are gone from disk, keeping the last one so the project always has a repo.
+func (r *Registry) dropMissingPaths(p *Project) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur := p.Paths()
+	live := existingDirs(cur)
+	if len(live) == 0 || len(live) == len(cur) {
+		return
+	}
+	p.setPaths(live)
+	if err := writeRepoFile(r.home, p.ID, live); err != nil {
+		log.Printf("trails: %s: %v", p.ID, err)
+	}
 }
 
 // OpenKnown opens every project under home whose repo file names a directory that still holds its id.
@@ -115,20 +191,17 @@ func (r *Registry) OpenKnown() {
 		return
 	}
 	for _, d := range dirs {
-		b, err := os.ReadFile(filepath.Join(r.home, d.Name(), "repo"))
-		if err != nil {
-			continue
-		}
-		repo := strings.TrimSpace(string(b))
-		if fi, err := os.Stat(repo); err != nil || !fi.IsDir() {
-			continue
-		}
-		if id, err := store.ReadID(repo); err != nil || id != d.Name() {
-			log.Printf("trails: skipping %s: %s does not hold id %s", d.Name(), repo, d.Name())
-			continue
-		}
-		if _, err := r.Open(repo); err != nil {
-			log.Printf("trails: skipping %s: %v", d.Name(), err)
+		for _, repo := range readRepoFile(r.home, d.Name()) {
+			if fi, err := os.Stat(repo); err != nil || !fi.IsDir() {
+				continue
+			}
+			if id, err := store.ReadID(repo); err != nil || id != d.Name() {
+				log.Printf("trails: skipping %s: %s does not hold id %s", d.Name(), repo, d.Name())
+				continue
+			}
+			if _, err := r.Open(repo); err != nil {
+				log.Printf("trails: skipping %s: %v", d.Name(), err)
+			}
 		}
 	}
 }
@@ -143,6 +216,7 @@ func (r *Registry) startSweep(p *Project) {
 		tick := time.NewTicker(r.sweepEvery)
 		defer tick.Stop()
 		for {
+			r.dropMissingPaths(p)
 			rep, err := trail.Sweep(r.ctx, p.DB(), p.Checker(), time.Now)
 			if err != nil {
 				log.Printf("trails: %s: sweep: %v", p.ID, err)

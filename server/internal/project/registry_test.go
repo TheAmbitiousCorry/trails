@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,7 +46,7 @@ func TestSameIDMoveForm(t *testing.T) {
 		t.Errorf("repo = %q, want the later open %q", p1.Repo(), second)
 	}
 	b, _ := os.ReadFile(filepath.Join(home, "shared", "repo"))
-	if strings.TrimSpace(string(b)) != second {
+	if string(b) != second+"\n"+first+"\n" {
 		t.Errorf("repo file = %q", b)
 	}
 }
@@ -205,5 +207,79 @@ func TestSoleAndRuntimeLookup(t *testing.T) {
 	}
 	if _, ok, _ := reg.BySession(ctx, "s-none"); ok {
 		t.Error("BySession found an unknown id")
+	}
+}
+
+func gitWorktrees(t *testing.T, id string) (main, linked string) {
+	t.Helper()
+	main = repoWithID(t, id)
+	linked = filepath.Join(t.TempDir(), "wt")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"}, {"worktree", "add", "-q", linked}} {
+		if out, err := exec.Command("git", append([]string{"-C", main}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return main, linked
+}
+
+func TestWorktreeOfTheSameRepositoryAttaches(t *testing.T) {
+	home := t.TempDir()
+	reg := project.NewRegistry(home, 0)
+	defer reg.Close()
+	main, linked := gitWorktrees(t, "wt")
+	p, err := reg.Open(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := reg.Open(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != p2 || !slices.Equal(p.Paths(), []string{main, linked}) || p.Repo() != main {
+		t.Fatalf("paths = %v, repo = %q", p.Paths(), p.Repo())
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "wt", "repo"))
+	if string(b) != main+"\n"+linked+"\n" {
+		t.Errorf("repo file = %q", b)
+	}
+	reg.Close()
+	reg2 := project.NewRegistry(home, 0)
+	defer reg2.Close()
+	reg2.OpenKnown()
+	if q, ok := reg2.ByID("wt"); !ok || !slices.Equal(q.Paths(), []string{main, linked}) {
+		t.Errorf("restored paths = %v", q)
+	}
+}
+
+func TestCopiedIDInAnotherRepositoryIsRefused(t *testing.T) {
+	reg := project.NewRegistry(t.TempDir(), 0)
+	defer reg.Close()
+	main, _ := gitWorktrees(t, "dup")
+	other, _ := gitWorktrees(t, "dup")
+	if _, err := reg.Open(main); err != nil {
+		t.Fatal(err)
+	}
+	var bound *project.IDBound
+	if _, err := reg.Open(other); !errors.As(err, &bound) || bound.Bound != main {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMoveMakesTheSecondCheckoutPrimary(t *testing.T) {
+	reg := project.NewRegistry(t.TempDir(), 0)
+	defer reg.Close()
+	main, linked := gitWorktrees(t, "mv")
+	if _, err := reg.Open(main); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Open(linked); err != nil {
+		t.Fatal(err)
+	}
+	p, err := reg.OpenMove(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Paths(), []string{linked, main}) || p.Repo() != linked {
+		t.Errorf("paths = %v", p.Paths())
 	}
 }

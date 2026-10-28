@@ -277,6 +277,7 @@ func runRegister(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else the live server in ~/.trail/server, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "repository to register (default the working directory)")
+	move := fs.Bool("move", false, "re-point the project at this repo even if the repo it is bound to still exists")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -290,13 +291,23 @@ func runRegister(args []string, stdout, stderr io.Writer) int {
 	if _, err := store.EnsureID(abs); err != nil {
 		return fail(stderr, err)
 	}
-	body, _ := json.Marshal(map[string]string{"repo": abs})
+	req := map[string]any{"repo": abs}
+	if *move {
+		req["move"] = true
+	}
+	body, _ := json.Marshal(req)
 	c := http.Client{Timeout: 5 * time.Second}
 	resp, err := c.Post("http://"+*addr+"/api/projects", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return noServer(stderr, *addr)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		var conflict struct{ Fix string }
+		if json.NewDecoder(io.LimitReader(resp.Body, 1<<10)).Decode(&conflict) == nil && conflict.Fix != "" {
+			return fail(stderr, errors.New(conflict.Fix))
+		}
+	}
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
 		return fail(stderr, fmt.Errorf("register %s: %s %s", abs, resp.Status, strings.TrimSpace(string(msg))))

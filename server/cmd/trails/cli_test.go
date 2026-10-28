@@ -247,6 +247,40 @@ func TestRegisterCreatesIDAndPosts(t *testing.T) {
 	}
 }
 
+func TestRegisterMoveFlagAndConflict(t *testing.T) {
+	var move any
+	status := http.StatusOK
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects", func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in)
+		move = in["move"]
+		if status == http.StatusConflict {
+			w.WriteHeader(status)
+			w.Write([]byte(`{"error":"id_bound","fix":"give it its own id"}`))
+			return
+		}
+		w.Write([]byte(`{"id":"abc","title":"Demo"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	repo := t.TempDir()
+
+	var out, errb bytes.Buffer
+	if code := runRegister([]string{"--repo", repo, "--addr", addr}, &out, &errb); code != 0 || move != nil {
+		t.Fatalf("plain: code %d, move %v", code, move)
+	}
+	if code := runRegister([]string{"--repo", repo, "--addr", addr, "--move"}, &out, &errb); code != 0 || move != true {
+		t.Fatalf("--move: code %d, move %v", code, move)
+	}
+	status = http.StatusConflict
+	errb.Reset()
+	if code := runRegister([]string{"--repo", repo, "--addr", addr}, &out, &errb); code != 1 || errb.String() != "trails: give it its own id\n" {
+		t.Fatalf("409: code %d, stderr %q", code, errb.String())
+	}
+}
+
 func TestRegisterWithoutServer(t *testing.T) {
 	dead := httptest.NewServer(http.NewServeMux())
 	addr := strings.TrimPrefix(dead.URL, "http://")

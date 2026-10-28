@@ -79,6 +79,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 // registerProject opens the repo named in the body and replies its id and title; a runtime_session_id in the body is remembered for that project.
+// An id bound to another live repo is a 409 id_bound unless the body sets move.
 // It never writes into the repo: any local process can reach the port, so only a repo that already holds .trail/id is accepted.
 func registerProject(reg *project.Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,16 @@ func registerProject(reg *project.Registry) http.Handler {
 			http.Error(w, "repo is not a directory", http.StatusBadRequest)
 			return
 		}
-		p, err := reg.Open(repo)
+		open := reg.Open
+		if move, _ := in["move"].(bool); move {
+			open = reg.OpenMove
+		}
+		p, err := open(repo)
+		var bound *project.IDBound
+		if errors.As(err, &bound) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "id_bound", "fix": bound.Error()})
+			return
+		}
 		if errors.Is(err, store.ErrNoID) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "not_opted_in", "fix": "run `trails register` in the repo to create .trail/id and register it"})
 			return
@@ -203,7 +213,7 @@ func preRead(ctx context.Context, st *project.Project, sid string, in map[string
 	if p == "" {
 		return preReadReply{Decision: decisionUnmapped}, nil
 	}
-	rel := repoRelative(st.Repo(), p)
+	rel := repoRelative(st.Paths(), p)
 	anchors, err := anchoringEntries(ctx, st.DB(), rel)
 	if err != nil {
 		return nil, err
@@ -253,7 +263,7 @@ func preReadMiss(ctx context.Context, p *project.Project, in map[string]any) (an
 	if p == nil || path == "" {
 		return preReadReply{Decision: decisionUnmapped}, nil
 	}
-	anchors, err := anchoringEntries(ctx, p.DB(), repoRelative(p.Repo(), path))
+	anchors, err := anchoringEntries(ctx, p.DB(), repoRelative(p.Paths(), path))
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +284,7 @@ func offTrail(ctx context.Context, st *project.Project, sid string, in map[strin
 	if p == "" {
 		return struct{}{}, nil
 	}
-	rel := repoRelative(st.Repo(), p)
+	rel := repoRelative(st.Paths(), p)
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'off_trail', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
@@ -296,7 +306,7 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	if p == "" {
 		return reply, nil
 	}
-	rel := repoRelative(st.Repo(), p)
+	rel := repoRelative(st.Paths(), p)
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
@@ -334,11 +344,13 @@ func anchoringEntries(ctx context.Context, db *sql.DB, rel string) ([]signpost, 
 	return out, rows.Err()
 }
 
-// repoRelative reports p relative to the repo when it lies under it, else as given.
-func repoRelative(repo, p string) string {
+// repoRelative reports p relative to the first bound checkout that contains it, else as given.
+func repoRelative(repos []string, p string) string {
 	if filepath.IsAbs(p) {
-		if rel, err := filepath.Rel(repo, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.ToSlash(rel)
+		for _, repo := range repos {
+			if rel, err := filepath.Rel(repo, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return filepath.ToSlash(rel)
+			}
 		}
 		return p
 	}
