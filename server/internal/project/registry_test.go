@@ -120,13 +120,16 @@ func TestForStartUsesTheRegisteredRuntime(t *testing.T) {
 	ctx := context.Background()
 	reg := project.NewRegistry(t.TempDir(), 0)
 	defer reg.Close()
-	reg.Open(repoWithID(t, "aaa"))
+	pa, _ := reg.Open(repoWithID(t, "aaa"))
 	pb, _ := reg.Open(repoWithID(t, "bbb"))
 	start := trail.Call{Mint: true, Runtime: "rt-9"}
 	_, _, err := reg.Resolve(ctx, start)
 	var ref *trail.Refusal
 	if !errors.As(err, &ref) || ref.Rule != "project_unknown" || !strings.Contains(ref.Fix, "runtime_session_id") {
 		t.Fatalf("unregistered runtime = %v", err)
+	}
+	if want := "this server holds: aaa (" + filepath.Base(pa.Repo()) + "), bbb (" + filepath.Base(pb.Repo()) + ")"; !strings.Contains(ref.Fix, want) {
+		t.Errorf("fix = %q, want it to contain %q", ref.Fix, want)
 	}
 	reg.RememberRuntime("rt-9", pb.ID)
 	if p, _, err := reg.Resolve(ctx, start); err != nil || p != pb {

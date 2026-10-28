@@ -416,13 +416,13 @@ func (r *Registry) forStart(id, hint, runtime string) (*Project, error) {
 			return p, nil
 		}
 	}
-	ids := make([]string, 0)
+	names := make([]string, 0)
 	for _, p := range r.List() {
-		ids = append(ids, p.ID)
+		names = append(names, fmt.Sprintf("%s (%s)", p.ID, filepath.Base(p.Repo())))
 	}
 	held := "this server holds no project"
-	if len(ids) > 0 {
-		held = "this server holds: " + strings.Join(ids, ", ")
+	if len(names) > 0 {
+		held = "this server holds: " + strings.Join(names, ", ")
 	}
 	return nil, &trail.Refusal{Rule: "project_unknown", Fix: fmt.Sprintf("pass project, the id in the repo's .trail/id, or pass runtime_session_id from the session-start hook; %s", held)}
 }

@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -179,5 +181,53 @@ func TestRegistersTheRepoOnceAfterTheFirstConnect(t *testing.T) {
 	runMCP([]string{"--addr", strings.TrimPrefix(srv.URL, "http://"), "--repo", repo, "--no-autostart"}, strings.NewReader(line+line), &out, &errb)
 	if posts != 1 || !strings.Contains(errb.String(), "project "+id) {
 		t.Errorf("posts %d, stderr %q", posts, errb.String())
+	}
+}
+
+func TestProjectRootFindsTheOneRepoBelow(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "repo")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.EnsureID(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotID, gotDir, below := projectRoot(root)
+	if gotID != id || gotDir != child || below != 0 {
+		t.Errorf("projectRoot = %q %q %d, want %q %q 0", gotID, gotDir, below, id, child)
+	}
+}
+
+func TestProjectRootFindsNoneWhenTwoReposAreBelow(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"one", "two"} {
+		child := filepath.Join(root, name)
+		if err := os.Mkdir(child, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.EnsureID(child); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, dir, below := projectRoot(root)
+	if id != "" || dir != "" || below != 2 {
+		t.Errorf("projectRoot = %q %q %d, want none with 2 below", id, dir, below)
+	}
+}
+
+func TestProjectRootSkipsHiddenDirectories(t *testing.T) {
+	root := t.TempDir()
+	hidden := filepath.Join(root, ".hidden", "repo")
+	if err := os.MkdirAll(hidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnsureID(hidden); err != nil {
+		t.Fatal(err)
+	}
+	id, dir, below := projectRoot(root)
+	if id != "" || dir != "" || below != 0 {
+		t.Errorf("projectRoot = %q %q %d, want none with 0 below", id, dir, below)
 	}
 }

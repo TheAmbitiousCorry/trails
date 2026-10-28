@@ -27,19 +27,62 @@ var (
 )
 
 // projectRoot finds the nearest .trail/id at or above start and returns the id and the directory holding it.
-func projectRoot(start string) (id, dir string) {
+// With none at or above, it looks one and two levels below start, as the session-start hook does: exactly one repo found is the project, and below counts the repos found when there are several or none.
+func projectRoot(start string) (id, dir string, below int) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
-		return "", ""
+		return "", "", 0
 	}
 	for d := dir; ; d = filepath.Dir(d) {
 		if id, err := store.ReadID(d); err == nil {
-			return id, d
+			return id, d, 0
 		}
 		if filepath.Dir(d) == d {
-			return "", ""
+			break
 		}
 	}
+	ids, dirs := reposBelow(dir)
+	if len(ids) == 1 {
+		return ids[0], dirs[0], 0
+	}
+	return "", "", len(ids)
+}
+
+// reposBelow returns the id and directory of each repo one or two levels below dir.
+func reposBelow(dir string) (ids, dirs []string) {
+	consider := func(d string) {
+		if id, err := store.ReadID(d); err == nil {
+			ids = append(ids, id)
+			dirs = append(dirs, d)
+		}
+	}
+	for _, child := range subdirs(dir) {
+		consider(child)
+		for _, grandchild := range subdirs(child) {
+			consider(grandchild)
+		}
+	}
+	return ids, dirs
+}
+
+// subdirs lists the directories directly in dir, skipping hidden ones, node_modules and vendor.
+func subdirs(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type relay struct {
@@ -74,7 +117,7 @@ func runMCP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if start == "" {
 		start, _ = os.Getwd()
 	}
-	id, root := projectRoot(start)
+	id, root, below := projectRoot(start)
 	if *projectFlag != "" {
 		id = *projectFlag
 	}
@@ -96,6 +139,9 @@ func runMCP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	shown := id
 	if shown == "" {
 		shown = "none"
+		if below > 0 {
+			shown = fmt.Sprintf("none (%d repos below)", below)
+		}
 	}
 	fmt.Fprintf(stderr, "trails mcp: cwd %s, project %s, server %s\n", start, shown, r.addr())
 
