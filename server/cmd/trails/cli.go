@@ -13,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
@@ -21,15 +23,45 @@ import (
 
 const fallbackAddr = "127.0.0.1:7777"
 
-// defaultAddr is the server address when --addr is not given: $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT when set, else fallbackAddr.
-func defaultAddr() string {
+// envAddr is the address named by the environment: $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "".
+func envAddr() string {
 	if a := os.Getenv("TRAILS_ADDR"); a != "" {
 		return a
 	}
 	if p := os.Getenv("TRAILS_PORT"); p != "" {
 		return "127.0.0.1:" + p
 	}
+	return ""
+}
+
+// defaultAddr is the server address when --addr is not given: the environment, else the addr in <home>/server while its pid is alive, else fallbackAddr.
+func defaultAddr() string {
+	if a := envAddr(); a != "" {
+		return a
+	}
+	if userHome, err := os.UserHomeDir(); err == nil {
+		if addr, _, ok := readServerFile(filepath.Join(userHome, ".trail")); ok {
+			return addr
+		}
+	}
 	return fallbackAddr
+}
+
+// readServerFile parses <home>/server, "<addr> <pid>", and reports ok only when that pid is alive.
+func readServerFile(home string) (addr string, pid int, ok bool) {
+	b, err := os.ReadFile(filepath.Join(home, "server"))
+	if err != nil {
+		return "", 0, false
+	}
+	f := strings.Fields(string(b))
+	if len(f) != 2 {
+		return "", 0, false
+	}
+	pid, err = strconv.Atoi(f[1])
+	if err != nil || pid <= 0 || syscall.Kill(pid, 0) != nil {
+		return "", 0, false
+	}
+	return f[0], pid, true
 }
 
 var (
@@ -129,7 +161,7 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 	target, rest := splitTarget(args)
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else the live server in ~/.trail/server, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "repository whose project to open (default the working directory)")
 	if err := fs.Parse(rest); err != nil {
 		return 2
@@ -192,7 +224,7 @@ func runOpen(args []string, stdout, stderr io.Writer) int {
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else the live server in ~/.trail/server, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "show only the project of this repository")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -243,7 +275,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 func runRegister(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
+	addr := fs.String("addr", defaultAddr(), "server address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else the live server in ~/.trail/server, else "+fallbackAddr+")")
 	repo := fs.String("repo", "", "repository to register (default the working directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2

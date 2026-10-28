@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -160,6 +162,7 @@ func TestDefaultAddrFromEnv(t *testing.T) {
 	if code := runOpen([]string{"map"}, &out, &errb); code != 0 || out.String() != "http://"+addr+"/p/demo/\n" {
 		t.Fatalf("open code %d, out %q, stderr %q", code, out.String(), errb.String())
 	}
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TRAILS_ADDR", "")
 	t.Setenv("TRAILS_PORT", "")
 	if got := defaultAddr(); got != fallbackAddr {
@@ -168,6 +171,7 @@ func TestDefaultAddrFromEnv(t *testing.T) {
 }
 
 func TestDefaultAddrFromTRAILSPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TRAILS_ADDR", "")
 	t.Setenv("TRAILS_PORT", "7701")
 	if got := defaultAddr(); got != "127.0.0.1:7701" {
@@ -181,6 +185,39 @@ func TestDefaultAddrFromTRAILSPort(t *testing.T) {
 	t.Setenv("TRAILS_PORT", "")
 	if got := defaultAddr(); got != fallbackAddr {
 		t.Fatalf("both unset: default %q, want %s", got, fallbackAddr)
+	}
+}
+
+func TestDefaultAddrFromServerFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TRAILS_ADDR", "")
+	t.Setenv("TRAILS_PORT", "")
+	if err := os.MkdirAll(filepath.Join(home, ".trail"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, ".trail", "server")
+	write := func(pid int) {
+		if err := os.WriteFile(file, []byte(fmt.Sprintf("127.0.0.1:7700 %d\n", pid)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(os.Getpid())
+	if got := defaultAddr(); got != "127.0.0.1:7700" {
+		t.Fatalf("live pid: default %q, want 127.0.0.1:7700", got)
+	}
+	t.Setenv("TRAILS_PORT", "7701")
+	if got := defaultAddr(); got != "127.0.0.1:7701" {
+		t.Fatalf("TRAILS_PORT must win over the file: default %q", got)
+	}
+	t.Setenv("TRAILS_PORT", "")
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	write(dead.Process.Pid)
+	if got := defaultAddr(); got != fallbackAddr {
+		t.Fatalf("dead pid: default %q, want %s", got, fallbackAddr)
 	}
 }
 

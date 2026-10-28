@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/mcp"
@@ -49,7 +53,11 @@ func serve(args []string) {
 	userHome, _ := os.UserHomeDir()
 	var repos repoFlags
 	flag.Var(&repos, "repo", "repository to serve, its .trail/id created when absent; repeatable")
-	addr := flag.String("addr", defaultAddr(), "listen address (default $TRAILS_ADDR, else "+fallbackAddr+")")
+	listenDefault := envAddr()
+	if listenDefault == "" {
+		listenDefault = fallbackAddr
+	}
+	addr := flag.String("addr", listenDefault, "listen address (default $TRAILS_ADDR, else 127.0.0.1 on $TRAILS_PORT, else "+fallbackAddr+")")
 	home := flag.String("home", filepath.Join(userHome, ".trail"), "Trail home")
 	flag.CommandLine.Parse(args)
 	if err := run(repos, *addr, *home); err != nil {
@@ -77,13 +85,48 @@ func run(repos []string, addr, home string) error {
 		}
 	}
 
+	if held, pid, ok := readServerFile(home); ok && answers(held) {
+		fmt.Fprintf(os.Stderr, "Trails: a server already holds %s at %s (pid %d); use it, or stop it first\n", home, held, pid)
+		os.Exit(1)
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
+	serverFile := filepath.Join(home, "server")
+	line := fmt.Sprintf("%s %d\n", ln.Addr(), os.Getpid())
+	if err := os.WriteFile(serverFile, []byte(line), 0o600); err != nil {
+		return err
+	}
+	defer func() {
+		if b, err := os.ReadFile(serverFile); err == nil && string(b) == line {
+			os.Remove(serverFile)
+		}
+	}()
 	for _, p := range reg.List() {
 		fmt.Printf("trails: project %s, db %s, repo %s\n", p.ID, p.Store.Path, p.Repo())
 	}
 	fmt.Printf("trails: listening on http://%s\n", ln.Addr())
-	return http.Serve(ln, mcp.Handler(reg, ln.Addr().String()))
+	srv := &http.Server{Handler: mcp.Handler(reg, ln.Addr().String())}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		srv.Shutdown(context.Background())
+	}()
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// answers reports whether a Trails server replies 200 on /api/projects at addr.
+func answers(addr string) bool {
+	c := http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get("http://" + addr + "/api/projects")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

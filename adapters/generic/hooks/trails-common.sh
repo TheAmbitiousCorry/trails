@@ -39,14 +39,22 @@ trails_session_id() {
   printf '%s' "$1" | field_of "${TRAILS_SESSION_FIELD:-session_id}"
 }
 
-# trails_init JSON sets TRAILS_REPO, TRAILS_ROOT, TRAILS_PROJECT and, when TRAILS_URL is unset, TRAILS_URL from TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else 127.0.0.1:7777.
+# trails_init JSON sets TRAILS_REPO, TRAILS_ROOT, TRAILS_PROJECT and, when TRAILS_URL is unset, TRAILS_URL from TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else the address in $HOME/.trail/server while its pid is alive, else 127.0.0.1:7777.
 # The repo is CLAUDE_PROJECT_DIR when set, else the payload's cwd, else the working directory. TRAILS_ROOT is the nearest directory at or above it that holds .trail/id
 # (empty when none does) and TRAILS_PROJECT is the id in that file. Every script calls this right after reading stdin.
 trails_init() {
   TRAILS_REPO=${CLAUDE_PROJECT_DIR:-}
   [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$(printf '%s' "$1" | field_of cwd)
   [ -n "$TRAILS_REPO" ] || TRAILS_REPO=$PWD
-  TRAILS_URL=${TRAILS_URL:-http://${TRAILS_ADDR:-127.0.0.1:${TRAILS_PORT:-7777}}}
+  if [ -z "${TRAILS_URL:-}" ]; then
+    _addr=${TRAILS_ADDR:-}
+    [ -n "$_addr" ] || [ -z "${TRAILS_PORT:-}" ] || _addr=127.0.0.1:$TRAILS_PORT
+    if [ -z "$_addr" ] && [ -f "$HOME/.trail/server" ]; then
+      read -r _saddr _spid < "$HOME/.trail/server" || true
+      [ -z "${_saddr:-}" ] || [ -z "${_spid:-}" ] || ! kill -0 "$_spid" 2>/dev/null || _addr=$_saddr
+    fi
+    TRAILS_URL=http://${_addr:-127.0.0.1:7777}
+  fi
   TRAILS_ROOT=$TRAILS_REPO
   while [ ! -f "$TRAILS_ROOT/.trail/id" ]; do
     [ "$TRAILS_ROOT" != / ] && [ "$TRAILS_ROOT" != . ] || { TRAILS_ROOT=; break; }

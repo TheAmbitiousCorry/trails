@@ -181,10 +181,21 @@ Trails runtime_session_id: rt-auto" ] || fail "no server, no binary: got '$out'"
 # The address comes from TRAILS_URL, else TRAILS_ADDR, else 127.0.0.1:7777; nothing is read per repo.
 got=$(env -u TRAILS_URL TRAILS_ADDR=127.0.0.1:9123 sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
 [ "$got" = "http://127.0.0.1:9123" ] || fail "common TRAILS_URL from TRAILS_ADDR: got '$got'"
-got=$(env -u TRAILS_URL -u TRAILS_ADDR sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
+got=$(env -u TRAILS_URL -u TRAILS_ADDR HOME="$tmp/nohome" sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
 [ "$got" = "http://127.0.0.1:7777" ] || fail "common TRAILS_URL default: got '$got'"
 got=$(env -u TRAILS_URL -u TRAILS_ADDR TRAILS_PORT=9124 sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
 [ "$got" = "http://127.0.0.1:9124" ] || fail "common TRAILS_URL from TRAILS_PORT alone: got '$got'"
+# With no env vars, the address in $HOME/.trail/server wins while its pid is alive; a dead pid falls back to 7777.
+mkdir -p "$tmp/sfhome/.trail"
+printf '127.0.0.1:9555 %s\n' "$$" > "$tmp/sfhome/.trail/server"
+got=$(env -u TRAILS_URL -u TRAILS_ADDR -u TRAILS_PORT HOME="$tmp/sfhome" sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
+[ "$got" = "http://127.0.0.1:9555" ] || fail "common TRAILS_URL from the server file: got '$got'"
+got=$(env -u TRAILS_URL -u TRAILS_ADDR TRAILS_PORT=9124 HOME="$tmp/sfhome" sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
+[ "$got" = "http://127.0.0.1:9124" ] || fail "TRAILS_PORT must win over the server file: got '$got'"
+sleep 0 & deadpid=$!; wait "$deadpid"
+printf '127.0.0.1:9555 %s\n' "$deadpid" > "$tmp/sfhome/.trail/server"
+got=$(env -u TRAILS_URL -u TRAILS_ADDR -u TRAILS_PORT HOME="$tmp/sfhome" sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf %s "$TRAILS_URL"' sh "$hooks" "$tmp/auto")
+[ "$got" = "http://127.0.0.1:7777" ] || fail "dead-pid server file must fall back to 7777: got '$got'"
 # The project id is found by walking up from a subdirectory.
 mkdir -p "$tmp/auto/deep/er"
 got=$(sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf "%s %s" "$TRAILS_PROJECT" "$TRAILS_ROOT"' sh "$hooks" "$tmp/auto/deep/er")

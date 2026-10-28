@@ -45,7 +45,7 @@ The project may declare its sign tree and tag vocabulary in `.trail/map.md`, com
 
 ## Address
 
-A server address is the `--addr` flag, else `TRAILS_ADDR`, else `127.0.0.1:` followed by `TRAILS_PORT` when that is set, else `127.0.0.1:7777`. `serve`, `register`, `open` and `status` apply the same rule, and the shell hooks apply it, after `TRAILS_URL` when that is set, to build `TRAILS_URL`, see [adapters](./adapters.md). Under Claude Code, `TRAILS_PORT` in the `env` block of `~/.claude/settings.json` is the one setting that moves the plugin's MCP entry, the hooks and the CLI together. Nothing is read from a repo: one machine has one address, and one server on it holds every project.
+A server address is the `--addr` flag, else `TRAILS_ADDR`, else `127.0.0.1:` followed by `TRAILS_PORT` when that is set, else the address in `<home>/server` while the pid in it is alive, else `127.0.0.1:7777`. `register`, `open` and `status` apply that rule, `serve` applies it without the file (it listens where told), and the shell hooks apply it, after `TRAILS_URL` when that is set, to build `TRAILS_URL`, see [adapters](./adapters.md). `serve` writes `<home>/server`, one line `<addr> <pid>`, once it is listening and removes it on clean shutdown. A `serve` that finds the file with a live pid whose address answers 200 on `GET /api/projects` prints that server's address and pid to stderr and exits 1, so one home has one server; a stale file is overwritten. Under Claude Code, `TRAILS_PORT` in the `env` block of `~/.claude/settings.json` is the one setting that moves the plugin's MCP entry, the hooks and the CLI together. Nothing is read from a repo: one machine has one address, and one server on it holds every project.
 
 ## Content schema
 
