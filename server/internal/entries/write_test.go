@@ -315,3 +315,50 @@ func TestProcedureNeedsAnAnchor(t *testing.T) {
 		t.Errorf("kind = %q, want procedure", kind)
 	}
 }
+
+func TestUpdateSkipsEntriesItConflictsWith(t *testing.T) {
+	st, c := open(t)
+	fillers(t, st, c)
+	body := "Round each invoice line to the nearest cent before summing totals."
+	x := mustWrite(t, st, c, decision("Quarterly invoice rounding", body))
+
+	dup := decision("Quarterly invoice rounding", body)
+	dup.Resolution, dup.DistinctReason = "distinct", "provisional copy"
+	x2 := mustWrite(t, st, c, dup)
+	if _, err := st.DB.Exec(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, 'conflicts_with')`, x2.EntryID, x.EntryID); err != nil {
+		t.Fatal(err)
+	}
+
+	upd := decision("Quarterly invoice rounding", body)
+	upd.EntryID = x2.EntryID
+	if res := writeRaw(t, st, c, upd); res.Refusal != nil {
+		t.Fatalf("update of a conflicting entry refused: %+v", res.Refusal)
+	}
+}
+
+func procedure(t *testing.T, st *store.Store, title, readWhen, body string) entries.WriteRequest {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(st.Repo, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return entries.WriteRequest{Actor: "s-1", ParentSignID: "root", Kind: "procedure", Title: title, ReadWhen: readWhen,
+		BodyMarkdown: body, Anchors: []anchor.Anchor{{Type: "file", PathOrURL: "a.txt"}}}
+}
+
+func TestDuplicateNeedsMatchingReadWhen(t *testing.T) {
+	const body = "Open Coolify, pick the release image sha and deploy it."
+	const title = "Coolify release deploy image sha"
+	st, c := open(t)
+	fillers(t, st, c)
+	mustWrite(t, st, c, procedure(t, st, title, "A release broke production; how do I go back to the previous build?", body))
+
+	other := procedure(t, st, title, "A push to main built nothing because GitHub Actions refused the job, and the app still has to be deployed", body)
+	if res := writeRaw(t, st, c, other); res.Refusal != nil {
+		t.Fatalf("same nouns, different read_when refused: %+v", res.Refusal)
+	}
+
+	same := procedure(t, st, title, "A release broke production; how do I go back to the previous build?", body)
+	if res := writeRaw(t, st, c, same); res.Refusal == nil || res.Refusal.Rule != "duplicate" {
+		t.Fatalf("identical entry = %+v", res.Refusal)
+	}
+}

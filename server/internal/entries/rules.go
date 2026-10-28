@@ -154,6 +154,15 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		if (w.prev != nil && h.EntryID == w.prev.id) || h.Kind != w.req.Kind {
 			continue
 		}
+		if w.prev != nil {
+			standsIn, err := standsInFor(ctx, w.db, w.prev.id, h.EntryID)
+			if err != nil {
+				return nil, err
+			}
+			if standsIn {
+				continue
+			}
+		}
 		if seen++; seen > maxDuplicateCandidates {
 			break
 		}
@@ -166,6 +175,17 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 			continue
 		}
 		ratio := h.Score / self
+		// Neighbours in one domain share nouns; only a matching read_when question makes them the same entry.
+		// A caller who names a resolution has already chosen the hit, so the read_when gate applies to the automatic refusal only.
+		if ratio > threshold && w.req.Resolution == "" {
+			rw, err := readWhenRatio(ctx, w, h)
+			if err != nil {
+				return nil, err
+			}
+			if rw >= 0 && rw <= threshold {
+				continue
+			}
+		}
 		if ratio > w.scores.Duplicate {
 			w.scores.Duplicate, w.scores.DuplicateOf, w.scores.DuplicateBM25 = ratio, h.EntryID, h.Score
 			hit = h
@@ -209,6 +229,43 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		return refusal("duplicate", "resolution %q is not one of merge, replace, distinct", w.req.Resolution), nil
 	}
 	return nil, nil
+}
+
+// standsInFor reports whether the hit is linked to the updated entry by conflicts_with in either direction, or was superseded by it.
+func standsInFor(ctx context.Context, db *sql.DB, prevID, hitID string) (bool, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM links WHERE relation = 'conflicts_with' AND ((from_id = ?1 AND to_id = ?2) OR (from_id = ?2 AND to_id = ?1)))
+		+ (SELECT COUNT(*) FROM entries WHERE id = ?2 AND superseded_by = ?1)`, prevID, hitID).Scan(&n)
+	return n > 0, err
+}
+
+// readWhenRatio is the hit's score for the request's read_when alone, over the hit's score for its own read_when. It returns -1 when the corpus cannot say, so the combined verdict stands.
+func readWhenRatio(ctx context.Context, w *writer, h *search.Hit) (float64, error) {
+	score := func(query string) (float64, error) {
+		rs, err := search.Rank(ctx, w.db, query, "")
+		if err != nil {
+			return 0, err
+		}
+		for _, r := range rs {
+			if r.EntryID == h.EntryID {
+				return r.Score, nil
+			}
+		}
+		return 0, nil
+	}
+	self, err := score(h.ReadWhen)
+	if err != nil {
+		return 0, err
+	}
+	if self < 1e-3 {
+		return -1, nil
+	}
+	got, err := score(w.req.ReadWhen)
+	if err != nil {
+		return 0, err
+	}
+	return got / self, nil
 }
 
 // selfScore is the bm25 an entry earns when its own title, read_when and first paragraph are the query.
