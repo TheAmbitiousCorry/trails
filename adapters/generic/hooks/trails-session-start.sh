@@ -3,14 +3,17 @@
 # TRAILS_SESSION_FIELD names the stdin JSON field (default session_id); TRAILS_SESSION_ENV names an environment variable that wins when set.
 # A repo opts in by committing .trail/id, found at or above the repo. With none there, the hook registers the repos one or two levels below (skipping hidden directories, node_modules and vendor) and lists them; with none anywhere it contacts no server and only prints a nudge to run trails register.
 # The server address is TRAILS_URL, else TRAILS_ADDR, else 127.0.0.1 on TRAILS_PORT, else 127.0.0.1:7777. The repo is CLAUDE_PROJECT_DIR, else the payload's cwd, else the working directory.
-# TRAILS_BIN names the binary (default trails on PATH). The common path, a server already up, is one curl with a 1 second cap.
+# TRAILS_BIN names the binary (default trails on PATH). When it is not found the hook prints one line saying so on every run, since the Claude Code MCP entry runs trails mcp. The common path, a server already up, is one curl with a 1 second cap.
 . "$(dirname "$0")/trails-common.sh"
 input=$(cat)
 trails_init "$input"
 id=$(trails_session_id "$input")
-# repos holds the directories to register, one per line; below holds the "<id> (<relative path>)" list when they were found under the directory.
 nl='
 '
+bin=${TRAILS_BIN:-trails}
+binnote=
+command -v "$bin" >/dev/null 2>&1 || binnote="Trails: the trails binary is not on PATH; the MCP entry runs trails mcp, see adapters/README.md"
+# repos holds the directories to register, one per line; below holds the "<id> (<relative path>)" list when they were found under the directory.
 repos=
 below=
 if [ -n "$TRAILS_ROOT" ]; then
@@ -27,11 +30,11 @@ else
     below=${below:+$below, }"$rid ($rel)"
   done
   if [ -z "$repos" ]; then
-    emit_context SessionStart "Trails: this repo has no .trail/id; run trails register to put it on the trail"
+    emit_context SessionStart "${binnote:+$binnote$nl}Trails: this repo has no .trail/id; run trails register to put it on the trail"
     exit 0
   fi
 fi
-note=
+note=$binnote
 reached=
 # register REPO sets code to the HTTP status of the registration, 000 when nothing answered, and reply to the body.
 register() {
@@ -50,7 +53,6 @@ first=${repos%%
 *}
 register "$first"
 if [ "$code" = 000 ]; then
-  bin=${TRAILS_BIN:-trails}
   if command -v "$bin" >/dev/null 2>&1; then
     addr=${TRAILS_URL#*://}
     addr=${addr%%/*}
@@ -68,8 +70,6 @@ if [ "$code" = 000 ]; then
       sleep 0.2
       register "$first"
     done
-  else
-    note="Trails: no server and no binary; see adapters/README.md"
   fi
 fi
 [ "$code" = 000 ] || reached=1
@@ -82,17 +82,6 @@ if [ -n "$reached" ]; then
     register "$r"
     case "$rest" in *"$nl"*) rest=${rest#*"$nl"} ;; *) rest= ;; esac
   done
-fi
-
-# Claude Code reads the MCP port from TRAILS_PORT; say so when the server the hook reached is on another port.
-if [ -n "$reached" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-  hostport=${TRAILS_URL#*://}
-  hostport=${hostport%%/*}
-  port=${hostport##*:}
-  if [ "$port" != "${TRAILS_PORT:-7777}" ]; then
-    note=${note:+$note
-}"Trails: the server answered on port $port but the MCP entry points at port ${TRAILS_PORT:-7777}; add \"env\": {\"TRAILS_PORT\": \"$port\"} to ~/.claude/settings.json"
-  fi
 fi
 
 text=$note

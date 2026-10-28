@@ -37,19 +37,21 @@ cd server && go test ./...
 
 ## Connect an agent
 
-One server per machine holds every project that has opted in, and each agent session works inside its own project. It listens on 127.0.0.1:7777 by default. Set `TRAILS_PORT` to move the port, or `TRAILS_ADDR` or `--addr` for a full address. Under Claude Code, `TRAILS_PORT` in the `env` block of `~/.claude/settings.json` moves the MCP entry below, the hooks and the CLI together. A repo opts in with `trails register` (it creates `.trail/id` and tells the running server), or by the first `trails serve --repo`.
+One server per machine holds every project that has opted in, and each agent session works inside its own project. It listens on 127.0.0.1:7777 by default. Set `TRAILS_PORT` to move the port, or `TRAILS_ADDR` or `--addr` for a full address. Under Claude Code, `TRAILS_PORT` in the `env` block of `~/.claude/settings.json` moves the server the hooks and the CLI reach; the MCP entry below finds the server itself. A repo opts in with `trails register` (it creates `.trail/id` and tells the running server), or by the first `trails serve --repo`.
 
-Pick your runtime under `adapters/` and follow its README: paste the protocol section into the project's instructions file and add the MCP entry. For Claude Code that is:
+Pick your runtime under `adapters/` and follow its README: paste the protocol section into the project's instructions file and add the MCP entry. For Claude Code the entry is the stdio shim `trails mcp`:
 
 ```json
 {
   "mcpServers": {
-    "trails": { "type": "http", "url": "http://127.0.0.1:7777/mcp" }
+    "trails": { "command": "trails", "args": ["mcp"] }
   }
 }
 ```
 
-The endpoint is stateless: every `tools/call` is a plain POST with a JSON answer, no `Mcp-Session-Id`, so a shell script can drive it with `curl` and carry only the `session_id` that `session_start` returns.
+The `trails` binary must be on `PATH`: run `go install ./cmd/trails` from `server/`, or copy `bin/trails` (from `make build`) to a directory on `PATH`. Claude Code starts the shim in the project; it finds the repo from `CLAUDE_PROJECT_DIR`, else its working directory, relays every message to the server's `/mcp`, and sends the id in the nearest `.trail/id` as `X-Trails-Project`, so `session_start` needs no `project`. When no server answers it waits for one and starts `trails serve --repo` itself. Its flags are `--repo`, `--project`, `--addr` and `--no-autostart`.
+
+The HTTP endpoint at `http://127.0.0.1:7777/mcp` stays for scripts and for runtimes without stdio. It is stateless: every `tools/call` is a plain POST with a JSON answer, no `Mcp-Session-Id`, so a shell script can drive it with `curl` and carry only the `session_id` that `session_start` returns. Over HTTP, `session_start` needs `project` when the server holds several projects, unless the call carries `runtime_session_id` from the session-start hook or an `X-Trails-Project` header; the refusal lists the ids the server holds.
 
 An agent with only the MCP entry still gets the protocol: the `session_start` response carries it.
 
@@ -78,4 +80,4 @@ claude plugin marketplace add TheAmbitiousCorry/trails
 claude plugin install trails@trails
 ```
 
-The plugin carries the walking protocol skill, the `/trail` command, the hooks and the MCP server entry on 127.0.0.1:7777 (the default port). A machine that needs another port sets `TRAILS_PORT` once, in the `env` block of `~/.claude/settings.json`; that one setting moves the plugin's MCP entry, the hooks and the CLI together. The session-start hook prints the line to add when the port it reaches differs from `TRAILS_PORT`. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH, then the session-start hook starts the one server if none runs and registers any repo with a committed `.trail/id`.
+The plugin carries the walking protocol skill, the `/trail` command, the hooks and the MCP server entry, which runs `trails mcp`. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH (or `go install` it), then the shim and the session-start hook start the one server if none runs, and the hook registers any repo with a committed `.trail/id`. A machine that needs another port sets `TRAILS_PORT` once, in the `env` block of `~/.claude/settings.json`; that moves the server, the hooks and the CLI, and the shim reads the same address rules, so the MCP entry needs no port. When `trails` is not on `PATH`, the session-start hook says so in the agent's context on every run.

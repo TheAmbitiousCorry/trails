@@ -1,1 +1,1 @@
-{ "mcpServers": { "trails": { "type": "http", "url": "http://127.0.0.1:${TRAILS_PORT:-7777}/mcp" } } }
+{ "mcpServers": { "trails": { "command": "trails", "args": ["mcp"] } } }

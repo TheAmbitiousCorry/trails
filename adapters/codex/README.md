@@ -6,7 +6,7 @@
 [mcp_servers.trails]
 url = "http://127.0.0.1:7777/mcp"
 ```
-   This runtime's MCP config cannot read an environment variable, so 7777 is the default port and a machine whose server runs on another edits the URL by hand to match. Claude Code's hint line (`Trails: the server answered on port <n> but the MCP entry points at port <m>; ...`) does not apply here.
+   This runtime's MCP config cannot read an environment variable, so 7777 is the default port and a machine whose server runs on another edits the URL by hand to match.
 3. Copy `../generic/hooks/` to `.trail/hooks/` in the project (the wiring below expects that path).
 4. Merge `hooks.json` from this directory into `.codex/hooks.json` (the project must be trusted). It wires `SessionStart` and `Stop`.
 

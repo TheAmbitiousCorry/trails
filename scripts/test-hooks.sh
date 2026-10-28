@@ -18,6 +18,8 @@ expect() { [ "$(printf '%s' "$3" | jq -r "$2" 2>/dev/null)" = true ] || fail "$1
 expect_empty() { [ -z "$2" ] || fail "$1: expected no output, got '$2'"; }
 
 (cd server && go build -o "$tmp/trails" ./cmd/trails)
+# The binary the hooks find; a test that needs it missing overrides this.
+export TRAILS_BIN=$tmp/trails
 mkdir -p "$tmp/repo/src"
 echo 'package a' > "$tmp/repo/src/a.go"
 
@@ -152,6 +154,7 @@ export FAKE_DIR=$tmp/fake REAL_TRAILS=$tmp/trails
 aport=$(( port + 1 ))
 [ "$aport" -lt 65535 ] || aport=$(( port - 1 ))
 aurl=http://127.0.0.1:$aport
+nobin="Trails: the trails binary is not on PATH; the MCP entry runs trails mcp, see adapters/README.md"
 auto_hook() { # CWD_DIR -> runs the session-start hook with cwd given in the payload
   printf '{"session_id":"rt-auto","cwd":"%s"}' "$1" | HOME=$fakehome TRAILS_URL=$aurl TRAILS_BIN=$tmp/fake/trails "$hooks/trails-session-start.sh"
 }
@@ -166,7 +169,8 @@ Trails runtime_session_id: rt-auto" ] || fail "autostart session-start: got '$ou
 [ -f "$fakehome/.trail/server.log" ] || fail "autostart wrote no log under ~/.trail"
 [ "$(curl -sf --max-time 1 "$aurl/api/projects" | jq -c '[.projects[].id]')" = '["autotest"]' ] || fail "autostarted server does not hold exactly the opted-in repo"
 out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome TRAILS_URL=$aurl TRAILS_BIN=/nonexistent/trails "$hooks/trails-session-start.sh")
-[ "$out" = "Trails project: autotest
+[ "$out" = "$nobin
+Trails project: autotest
 Trails runtime_session_id: rt-auto" ] || fail "server up, binary missing: got '$out'"
 [ -z "${pid2:-}" ] || { kill "$pid2" 2>/dev/null || true; pid2=; }
 i=0
@@ -175,7 +179,7 @@ while curl -sf --max-time 1 -o /dev/null "$aurl/api/projects"; do
   sleep 0.1
 done
 out=$(printf '{"session_id":"rt-auto","cwd":"%s"}' "$tmp/auto" | HOME=$fakehome TRAILS_URL=$aurl TRAILS_BIN=/nonexistent/trails "$hooks/trails-session-start.sh")
-[ "$out" = "Trails: no server and no binary; see adapters/README.md
+[ "$out" = "$nobin
 Trails project: autotest
 Trails runtime_session_id: rt-auto" ] || fail "no server, no binary: got '$out'"
 
@@ -202,23 +206,36 @@ mkdir -p "$tmp/auto/deep/er"
 got=$(sh -c '. "$1/trails-common.sh"; trails_init "{\"cwd\":\"$2\"}"; printf "%s %s" "$TRAILS_PROJECT" "$TRAILS_ROOT"' sh "$hooks" "$tmp/auto/deep/er")
 [ "$got" = "autotest $tmp/auto" ] || fail "project id from a subdirectory: got '$got'"
 
-# Mismatch line: under Claude Code, when the server the hook reached is on another port than the MCP entry's TRAILS_PORT (7777 when unset).
-mm="Trails: the server answered on port $port but the MCP entry points at port 7777; add \"env\": {\"TRAILS_PORT\": \"$port\"} to ~/.claude/settings.json"
-mm_hook() { # EXTRA_ENV... -> session-start against the main server, repo from CLAUDE_PROJECT_DIR
-  printf '{"session_id":"rt-mm"}' | env CLAUDE_PROJECT_DIR="$tmp/repo" TRAILS_BIN=/nonexistent/trails TRAILS_URL="$url" "$@" "$hooks/trails-session-start.sh"
+# Missing-binary line: printed on every run when trails (or TRAILS_BIN) is not found, absent when it is. The tool directory holds the commands the hook needs and no trails.
+mkdir -p "$tmp/tools"
+for t in jq curl dirname tr cat mkdir sleep sed awk grep head cut sort kill; do
+  p=$(command -v "$t") && ln -sf "$p" "$tmp/tools/$t"
+done
+mb_hook() { # EXTRA_ENV... -> session-start against the main server, repo from CLAUDE_PROJECT_DIR
+  printf '{"session_id":"rt-mb"}' | env -u TRAILS_BIN CLAUDE_PROJECT_DIR="$tmp/repo" TRAILS_URL="$url" "$@" "$hooks/trails-session-start.sh"
 }
-out=$(mm_hook)
-[ "$out" = "$mm
+out=$(mb_hook PATH="$tmp/tools")
+[ "$out" = "$nobin
 Trails project: $rid
-Trails runtime_session_id: rt-mm" ] || fail "mismatch line, TRAILS_PORT unset: got '$out'"
-out=$(mm_hook TRAILS_PORT=$port)
-case "$out" in *"MCP entry points at"*) fail "mismatch line printed though TRAILS_PORT matches: '$out'" ;; esac
-out=$(mm_hook TRAILS_PORT=1234)
-case "$out" in *"MCP entry points at port 1234; add"*) ;; *) fail "mismatch line, TRAILS_PORT differs: got '$out'" ;; esac
-out=$(printf '{"session_id":"rt-mm"}' | env -u CLAUDE_PROJECT_DIR "$hooks/trails-session-start.sh")
-case "$out" in *"MCP entry points at"*) fail "mismatch line printed outside Claude Code: '$out'" ;; esac
-out=$(mm_hook TRAILS_URL=http://127.0.0.1:1)
-case "$out" in *"MCP entry points at"*) fail "mismatch line printed for a server the hook never reached: '$out'" ;; esac
+Trails runtime_session_id: rt-mb" ] || fail "missing-binary line, trails not on PATH: got '$out'"
+out=$(mb_hook TRAILS_BIN=/nonexistent/trails)
+[ "$out" = "$nobin
+Trails project: $rid
+Trails runtime_session_id: rt-mb" ] || fail "missing-binary line, TRAILS_BIN missing: got '$out'"
+out=$(mb_hook PATH="$tmp/tools" TRAILS_URL=http://127.0.0.1:1)
+case "$out" in "$nobin"*) ;; *) fail "missing-binary line absent when no server answers: got '$out'" ;; esac
+mkdir -p "$tmp/pathbin"
+ln -sf "$tmp/trails" "$tmp/pathbin/trails"
+out=$(mb_hook PATH="$tmp/tools:$tmp/pathbin")
+[ "$out" = "Trails project: $rid
+Trails runtime_session_id: rt-mb" ] || fail "binary on PATH: got '$out'"
+out=$(mb_hook TRAILS_BIN="$tmp/trails")
+case "$out" in *"not on PATH"*) fail "line printed with TRAILS_BIN set to a real binary: '$out'" ;; esac
+out=$(printf '{"session_id":"rt-mb","cwd":"%s"}' "$tmp/noid" | env -u TRAILS_BIN PATH="$tmp/tools" "$hooks/trails-session-start.sh")
+[ "$out" = "$nobin
+Trails: this repo has no .trail/id; run trails register to put it on the trail" ] || fail "missing-binary line in a repo with no id: got '$out'"
+out=$(mb_hook TRAILS_BIN="$tmp/trails")
+case "$out" in *"MCP entry points at"*) fail "the port-mismatch line is gone: '$out'" ;; esac
 
 # Two repos, one server: each registers over HTTP and each hook call lands in its own project.
 mkdir -p "$tmp/repo2/.trail" "$tmp/repo2/src"

@@ -5,7 +5,7 @@ Verified against each runtime's official documentation on 2026-10-27. Anything m
 | | Claude Code | Codex CLI | Gemini CLI | Cursor |
 |---|---|---|---|---|
 | Hooks file | `.claude/settings.json`, key `hooks` | `.codex/hooks.json` (trusted project) | `.gemini/settings.json`, key `hooks` | `.cursor/hooks.json`, `version: 1` |
-| MCP file and entry | `.mcp.json`: `{"type":"http","url":...}` | `.codex/config.toml`: `[mcp_servers.trails] url = ...` | `.gemini/settings.json`: `{"httpUrl": ...}` (`url` means SSE, wrong) | `.cursor/mcp.json`: `{"url": ...}` |
+| MCP file and entry | `.mcp.json`: `{"command":"trails","args":["mcp"]}`, the stdio shim | `.codex/config.toml`: `[mcp_servers.trails] url = ...` | `.gemini/settings.json`: `{"httpUrl": ...}` (`url` means SSE, wrong) | `.cursor/mcp.json`: `{"url": ...}` |
 | After-read event | `PostToolUse`, matcher `Read\|Grep\|Glob` | `PostToolUse`, but reads go through shell, no path field: off-trail unsupported | `AfterTool`, matcher `read_.*`, tools `read_file`, `grep_search`, `glob` | `postToolUse`, matcher `Read` |
 | Before-read event | `PreToolUse`, matcher `Read\|Grep\|Glob`; unverified, taken from memory and not yet checked against the docs | none recorded: after-read only | none recorded: after-read only | none recorded: after-read only |
 | Deny the read | `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":...}}`, exit 0; unverified, taken from memory (exit 2 with the reason on stderr is the older form) | n/a | n/a | n/a |
@@ -26,6 +26,8 @@ All five hook scripts take the repo from `CLAUDE_PROJECT_DIR` when set, else std
 The before-read rows were added with `trails-pre-read.sh` and are not part of the 2026-10-27 verification: a runtime may have a before-tool event that this file does not record (Gemini CLI `BeforeTool`, Cursor `preToolUse`, Codex `PreToolUse` are believed to exist, all unverified), and until one is checked against the docs and a real payload is captured it keeps the after-read signpost. The pre-read script reads the same path fields as the after-read one, `tool_input.file_path` for `Read` and `tool_input.path` for `Grep` and `Glob`, which stay unverified for `PreToolUse`; a `Grep` or `Glob` with no `path` has nothing to ask about and passes.
 
 Known limits: Codex gets the stop check only. Gemini CLI's docs carry a notice that it was replaced by Antigravity CLI in June 2026; check the target before wiring. Cursor's stop hook cannot block, it schedules a follow-up turn, which the server's `blocks` counter still bounds.
+
+The Claude Code MCP entry is the stdio shim `trails mcp`, which sends `X-Trails-Project` from the nearest `.trail/id` at or above `CLAUDE_PROJECT_DIR` (else its working directory), so `session_start` needs no `project` there; the other runtimes keep their HTTP entries and pass `project`.
 
 The hooks know the runtime's session id, not the Trails one. A session-start hook (Claude Code `SessionStart`, Codex `SessionStart`, Gemini `SessionStart`, Cursor `sessionStart`) prints `Trails project: <id>` and `Trails runtime_session_id: <id>` into context; the agent passes both to `session_start`, and the four hook endpoints take the project and the runtime id and resolve the open Trails session from them.
 
