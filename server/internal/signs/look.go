@@ -88,7 +88,12 @@ func Look(ctx context.Context, db *sql.DB, req LookRequest) (View, error) {
 			}
 		}
 		if id == "" {
-			return View{}, &trail.Refusal{Rule: "look_target", Fix: "pass sign_id or entry_id, or a tag or kind to gather entries across the tree"}
+			for sid, s := range p.signs {
+				if s.ParentID == "" {
+					id = sid
+					break
+				}
+			}
 		}
 		if p.signs[id] == nil {
 			return View{}, &trail.Refusal{Rule: "unknown_sign", Fix: "sign ids come from the orient view or a sign's edges; check the id"}

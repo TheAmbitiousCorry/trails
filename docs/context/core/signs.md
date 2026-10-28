@@ -40,7 +40,7 @@ A sign is created with `write_sign` under an existing parent, with a title and a
 ## Orient and local view
 
 - **Orient.** The `session_start` response returns the root sign's id and title, its edge count (child signs plus entry kinds directly under it, by the fan-out rule above), the project's entry count, the defined tag vocabulary and the how-to-walk block, plus a notice when open gaps are at the cap. It is the trailhead board.
-- **Local view.** Any `look` call returns one sign: its summary, its parent's title, and its edges. Depth is one. A `depth` parameter up to three nests child signs, and the response says in `lines` how many lines it cost.
+- **Local view.** Any `look` call returns one sign: its summary, its parent's title, and its edges. A `look` with no sign, entry, tag or kind returns the root sign. Depth is one. A `depth` parameter up to three nests child signs, and the response says in `lines` how many lines it cost.
 - **Search** returns matching entries each with the path of sign titles above it, so a jump lands with its route filled in. A `read` carries the signs from the root to the entry, each with its id, title and summary line, so a reader who arrived by search or a link sees the forks it skipped. Results are capped at five by default (ten at most) and ranked by text match with a tier factor, so at equal text verified beats provisional beats stale.
 
 ## Prerequisites
