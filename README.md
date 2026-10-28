@@ -49,6 +49,8 @@ Pick your runtime under `adapters/` and follow its README: paste the protocol se
 }
 ```
 
+The endpoint is stateless: every `tools/call` is a plain POST with a JSON answer, no `Mcp-Session-Id`, so a shell script can drive it with `curl` and carry only the `session_id` that `session_start` returns.
+
 An agent with only the MCP entry still gets the protocol: the `session_start` response carries it.
 
 ## Flags

@@ -10,9 +10,12 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/web"
 )
 
+// Version is what initialize reports as serverInfo.version; the release commit bumps it with .claude-plugin/plugin.json.
+const Version = "0.6.3"
+
 // Handler serves /mcp, /api and the embedded front end for a server listening on addr (host:port as the client dials it).
 func Handler(reg *project.Registry, addr string) http.Handler {
-	srv := sdk.NewServer(&sdk.Implementation{Name: "trail", Title: "Trail", Version: "0.1.0"}, nil)
+	srv := sdk.NewServer(&sdk.Implementation{Name: "trail", Title: "Trail", Version: Version}, nil)
 	registerTools(srv, reg)
 
 	mcpHandler := sdk.NewStreamableHTTPHandler(
