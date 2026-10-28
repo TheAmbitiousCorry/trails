@@ -136,26 +136,29 @@ func TestSmallCorpusAnyMatchIsAHit(t *testing.T) {
 	if err != nil || miss || len(hits) != 2 {
 		t.Fatalf("three-entry corpus: hits %d miss %v err %v", len(hits), miss, err)
 	}
-	if self, _ := search.SelfScore(ctx, st.DB, hits[0].EntryID); self >= 1e-3 && hits[0].Score/self >= 0.5 {
-		t.Fatalf("ratio %v clears the threshold, so this test would not prove the rule", hits[0].Score/self)
-	}
-
+	// At the cap the threshold applies: one matched term out of three is a miss.
 	st.DB.Exec(`UPDATE settings SET value = '3' WHERE key = 'search_min_corpus'`)
-	if _, miss, _ := search.Query(ctx, st.DB, "project", "", 5); !miss {
+	if _, miss, _ := search.Query(ctx, st.DB, "project bananas trucks", "", 5); !miss {
 		t.Error("corpus at search_min_corpus still skips the threshold")
 	}
 }
 
-func TestThresholdIsARatioOfSelfScore(t *testing.T) {
+func TestThresholdIsTermCoverage(t *testing.T) {
 	st, c := open(t)
 	ctx := context.Background()
 	e := write(t, st, c, entries.WriteRequest{Actor: "user", ParentSignID: "root", Kind: "decision", Title: "Credit note numbering",
 		ReadWhen: "you number credit notes after a refund", BodyMarkdown: "Credit notes continue the invoice sequence.", DecidedBy: "ana", DecidedAt: "2026-10-27"})
 
-	// One shared noun scores above the old absolute 0.5 but is a small share of the entry's own score.
+	// One shared noun out of six content terms is a miss, whatever bm25 says.
 	hits, miss, err := search.Query(ctx, st.DB, "roadmap decision log, graduate and decline notes", "", 5)
 	if err != nil || !miss || len(hits) != 0 {
 		t.Errorf("one shared noun: hits=%+v miss=%v err=%v", hits, miss, err)
+	}
+
+	// A two-word question whose content terms both appear is a hit, however long the entry.
+	hits, miss, err = search.Query(ctx, st.DB, "how do credit notes work", "", 5)
+	if err != nil || miss || len(hits) == 0 || hits[0].EntryID != e.EntryID {
+		t.Errorf("short question: hits=%+v miss=%v err=%v", hits, miss, err)
 	}
 
 	hits, miss, err = search.Query(ctx, st.DB, "you number credit notes after a refund", "", 5)

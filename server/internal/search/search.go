@@ -231,30 +231,62 @@ func signPath(ctx context.Context, db DBTX, signID string) ([]string, error) {
 	return path, nil
 }
 
-// SelfScore is the bm25 an entry earns when its own title, read_when and first paragraph are the query.
-func SelfScore(ctx context.Context, db DBTX, entryID string) (float64, error) {
-	q, err := EntryQuery(ctx, db, entryID)
-	if err != nil {
-		return 0, err
+// stopwords are the question words and function words a query carries that name nothing an entry is about.
+var stopwords = map[string]bool{}
+
+func init() {
+	for _, w := range strings.Fields("a an and are as at be but by can did do does for from has have how i in is it its me my of on or our should that the their this to was we what when where which who why will with would you your") {
+		stopwords[w] = true
 	}
-	hits, err := Rank(ctx, db, q, "")
-	if err != nil {
-		return 0, err
-	}
-	for _, h := range hits {
-		if h.EntryID == entryID {
-			return h.Score, nil
-		}
-	}
-	return 0, nil
 }
 
-// minSelfScore is the self score under which the corpus cannot say how good a match is.
-const minSelfScore = 1e-3
+// contentTerms are the query's distinct words of three letters or more that are not stopwords, lowercased.
+func contentTerms(q string) []string {
+	seen := map[string]bool{}
+	var terms []string
+	for _, w := range wordRe.FindAllString(strings.ToLower(q), -1) {
+		if len(w) < 3 || stopwords[w] || seen[w] || len(terms) >= maxTerms {
+			continue
+		}
+		seen[w] = true
+		terms = append(terms, w)
+	}
+	return terms
+}
 
-// Query returns up to limit hits whose bm25 score, as a fraction of that entry's score against its own text, reaches search_threshold.
-// miss is true when none does. A self score under minSelfScore keeps the hit.
-// Below search_min_corpus live entries bm25 gives common terms no weight, so any FTS match is a hit and the threshold is skipped.
+// coverage maps each live entry matching any content term of q to the share of those terms it contains.
+func coverage(ctx context.Context, db DBTX, q string) (map[string]float64, error) {
+	terms := contentTerms(q)
+	counts := map[string]int{}
+	for _, t := range terms {
+		rows, err := db.QueryContext(ctx, `SELECT entry_id FROM entries_fts WHERE entries_fts MATCH ?`, `"`+t+`"`)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			counts[id]++
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	out := make(map[string]float64, len(counts))
+	for id, n := range counts {
+		out[id] = float64(n) / float64(len(terms))
+	}
+	return out, nil
+}
+
+// Query returns up to limit hits that contain at least search_threshold of the query's content terms (the words left after stopwords
+// and words under three letters), best first by bm25. miss is true when none does. bm25 alone cannot tell a miss: one shared noun in
+// a corpus of a hundred entries scores like a real hit, while a two-word question against a long entry scores like noise.
+// A query with no content terms is matched on its raw words and never misses while something matches.
+// Below search_min_corpus live entries any FTS match is a hit and the threshold is skipped.
 func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []Hit, miss bool, err error) {
 	all, err := Rank(ctx, db, q, taskType)
 	if err != nil {
@@ -272,17 +304,15 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 	if err != nil {
 		return nil, false, err
 	}
-	small := float64(live) < minCorpus
-	for _, h := range all {
-		if small {
-			hits = append(hits, h)
-			continue
-		}
-		self, err := SelfScore(ctx, db, h.EntryID)
-		if err != nil {
+	small := float64(live) < minCorpus || len(contentTerms(q)) == 0
+	var cover map[string]float64
+	if !small {
+		if cover, err = coverage(ctx, db, q); err != nil {
 			return nil, false, err
 		}
-		if self < minSelfScore || h.Score/self >= threshold {
+	}
+	for _, h := range all {
+		if small || cover[h.EntryID] >= threshold {
 			hits = append(hits, h)
 		}
 	}
