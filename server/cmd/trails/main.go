@@ -43,8 +43,10 @@ func main() {
 			os.Exit(runOpen(args, os.Stdout, os.Stderr))
 		case "status":
 			os.Exit(runStatus(args, os.Stdout, os.Stderr))
+		case "mcp":
+			os.Exit(runMCP(args, os.Stdin, os.Stdout, os.Stderr))
 		default:
-			fmt.Fprintf(os.Stderr, "trails: unknown command %q, want serve, register, open or status\n", cmd)
+			fmt.Fprintf(os.Stderr, "trails: unknown command %q, want serve, register, open, status or mcp\n", cmd)
 			os.Exit(2)
 		}
 	}
@@ -57,6 +59,7 @@ const usage = `usage: trails <command> [flags]
   register  tell the running server about this repository
   open      open the browser at the trail, map or graph
   status    list every project the server holds
+  mcp       stdio relay for an MCP client, started in the project directory
 
 Flags go after the command; each command takes --help.
 `

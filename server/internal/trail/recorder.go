@@ -35,7 +35,12 @@ type Call struct {
 	Project string
 	// Runtime is the runtime's own session id a minting call carries; empty otherwise.
 	Runtime string
+	// Hint is the X-Trails-Project header of the request, set by Record on a minting call; Project outranks it.
+	Hint string
 }
+
+// ProjectHeader is the request header the stdio shim sends with the project id it found in .trail/id.
+const ProjectHeader = "X-Trails-Project"
 
 type Input interface{ Call() Call }
 
@@ -89,6 +94,9 @@ func Record[P any, In Input, Out any](r Resolver[P], tool string, h func(context
 	return func(ctx context.Context, req *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Out, error) {
 		var zero Out
 		c := in.Call()
+		if c.Mint && req != nil && req.Extra != nil {
+			c.Hint = strings.TrimSpace(req.Extra.Header.Get(ProjectHeader))
+		}
 		p, db, err := r.Resolve(ctx, c)
 		if err != nil {
 			return nil, zero, err

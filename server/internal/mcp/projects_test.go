@@ -188,3 +188,54 @@ func TestRuntimeRegisteredInTwoReposRefusesWithBoth(t *testing.T) {
 		t.Fatalf("two registered repos = %q, want a refusal naming %s and %s", txt, idA, idB)
 	}
 }
+
+type headerTransport string
+
+func (h headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("X-Trails-Project", string(h))
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func connectWithHeader(t *testing.T, addr, id string) caller {
+	t.Helper()
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(context.Background(), &sdk.StreamableClientTransport{Endpoint: "http://" + addr + "/mcp", HTTPClient: &http.Client{Transport: headerTransport(id)}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sess.Close() })
+	return func(name string, args map[string]any) (*sdk.CallToolResult, error) {
+		return sess.CallTool(context.Background(), &sdk.CallToolParams{Name: name, Arguments: args})
+	}
+}
+
+func TestHeaderSelectsTheProject(t *testing.T) {
+	repoA, repoB := t.TempDir(), t.TempDir()
+	reg, addr := serveHome(t, t.TempDir(), repoA, repoB)
+	idA, _ := store.ReadID(repoA)
+	idB, _ := store.ReadID(repoB)
+
+	call := connectWithHeader(t, addr, idB)
+	res, err := call("session_start", map[string]any{"task": "header only"})
+	sid := structured(t, res, err)["session_id"].(string)
+	if p, ok, _ := reg.BySession(context.Background(), sid); !ok || p.ID != idB {
+		t.Errorf("header-only session landed in %v, want project %s", p, idB)
+	}
+
+	res, err = call("session_start", map[string]any{"task": "explicit wins", "project": idA})
+	sid = structured(t, res, err)["session_id"].(string)
+	if p, ok, _ := reg.BySession(context.Background(), sid); !ok || p.ID != idA {
+		t.Errorf("explicit project session landed in %v, want project %s", p, idA)
+	}
+}
+
+func TestUnknownHeaderIDIsRefused(t *testing.T) {
+	repo := t.TempDir()
+	_, addr := serveHome(t, t.TempDir(), repo)
+	call := connectWithHeader(t, addr, "nope")
+	res, err := call("session_start", map[string]any{"task": "copied id"})
+	if txt := refusal(t, res, err); !strings.HasPrefix(txt, "project_unknown:") || !strings.Contains(txt, "nope") {
+		t.Errorf("unknown header id = %q", txt)
+	}
+}

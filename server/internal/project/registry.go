@@ -342,7 +342,7 @@ func (r *Registry) Resolve(ctx context.Context, c trail.Call) (*Project, *sql.DB
 	var p *Project
 	if c.Mint {
 		var err error
-		if p, err = r.forStart(c.Project, c.Runtime); err != nil {
+		if p, err = r.forStart(c.Project, c.Hint, c.Runtime); err != nil {
 			return nil, nil, err
 		}
 	} else {
@@ -378,8 +378,15 @@ func (r *Registry) RememberRuntime(runtimeID, projectID string) {
 	r.mu.Unlock()
 }
 
-// forStart places a session_start: the named project wins, else the project the session-start hook registered for the runtime id, else the only open project.
-func (r *Registry) forStart(id, runtime string) (*Project, error) {
+// forStart places a session_start: the named project wins, else the project the request header named, else the project the session-start hook registered for the runtime id, else the only open project.
+// A header id the server does not hold is refused rather than skipped, so a copied id cannot place a session elsewhere.
+func (r *Registry) forStart(id, hint, runtime string) (*Project, error) {
+	if id == "" && hint != "" {
+		if p, ok := r.ByID(hint); ok {
+			return p, nil
+		}
+		return nil, &trail.Refusal{Rule: "project_unknown", Fix: fmt.Sprintf("the server does not hold project %s from the %s header; run: trails register, or pass project", hint, trail.ProjectHeader)}
+	}
 	if id != "" {
 		if p, ok := r.ByID(id); ok {
 			return p, nil
