@@ -35,19 +35,31 @@ type Registry struct {
 	mu       sync.Mutex
 	byID     map[string]*Project
 	sessions map[string]string
-	runtimes map[string]string
+	runtimes map[string][]string
 }
 
 // NewRegistry opens nothing. A zero sweepEvery runs no sweeps, which tests use to keep the clock still.
 func NewRegistry(home string, sweepEvery time.Duration) *Registry {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Registry{home: home, sweepEvery: sweepEvery, ctx: ctx, cancel: cancel,
-		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string]string{}}
+		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string][]string{}}
+}
+
+// IDBound is returned by Open when the repo's id is already bound to a different repo that still exists.
+type IDBound struct{ ID, Bound, Repo string }
+
+func (e *IDBound) Error() string {
+	return fmt.Sprintf(".trail/id %s is already bound to %s; give %s its own id (delete its .trail/id and run trails register) or, if the project moved, run trails register --move", e.ID, e.Bound, e.Repo)
 }
 
 // Open registers the project in repo, which must hold .trail/id, and returns it.
-// A second open of an id already held keeps the open store and moves the project to the new repo path.
-func (r *Registry) Open(repo string) (*Project, error) {
+// An id already bound to a different repo that still exists on disk is refused with *IDBound; a bound path that is gone is a move.
+func (r *Registry) Open(repo string) (*Project, error) { return r.open(repo, false) }
+
+// OpenMove is Open that re-points a bound id at repo even when the old repo still exists.
+func (r *Registry) OpenMove(repo string) (*Project, error) { return r.open(repo, true) }
+
+func (r *Registry) open(repo string, move bool) (*Project, error) {
 	repo, err := filepath.Abs(repo)
 	if err != nil {
 		return nil, err
@@ -58,7 +70,21 @@ func (r *Registry) Open(repo string) (*Project, error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if p, ok := r.byID[id]; ok {
+	p, held := r.byID[id]
+	if !move {
+		bound := ""
+		if held {
+			bound = p.Repo()
+		} else if b, err := os.ReadFile(filepath.Join(r.home, id, "repo")); err == nil {
+			bound = strings.TrimSpace(string(b))
+		}
+		if bound != "" && bound != repo {
+			if fi, err := os.Stat(bound); err == nil && fi.IsDir() {
+				return nil, &IDBound{ID: id, Bound: bound, Repo: repo}
+			}
+		}
+	}
+	if held {
 		if old := p.setRepo(repo); old != repo {
 			log.Printf("trails: project %s moved from %s to %s", id, old, repo)
 		}
@@ -72,7 +98,7 @@ func (r *Registry) Open(repo string) (*Project, error) {
 		st.Close()
 		return nil, err
 	}
-	p := newProject(st, repo)
+	p = newProject(st, repo)
 	r.byID[id] = p
 	r.startSweep(p)
 	return p, nil
@@ -207,7 +233,11 @@ func (r *Registry) ByRuntime(ctx context.Context, runtimeID string) (*Project, s
 		return nil, "", false, nil
 	}
 	r.mu.Lock()
-	cached, ok := r.byID[r.runtimes[runtimeID]]
+	var cached *Project
+	ok := false
+	if ids := r.runtimes[runtimeID]; len(ids) > 0 {
+		cached, ok = r.byID[ids[0]]
+	}
 	r.mu.Unlock()
 	if ok {
 		if sid, _, found, err := cached.OpenSession(ctx, runtimeID); err != nil || found {
@@ -227,7 +257,7 @@ func (r *Registry) ByRuntime(ctx context.Context, runtimeID string) (*Project, s
 	}
 	if best != nil {
 		r.mu.Lock()
-		r.runtimes[runtimeID] = best.ID
+		r.runtimes[runtimeID] = prepend(r.runtimes[runtimeID], best.ID)
 		r.mu.Unlock()
 	}
 	return best, bestID, best != nil, nil
@@ -254,13 +284,23 @@ func (r *Registry) Resolve(ctx context.Context, c trail.Call) (*Project, *sql.DB
 	return p, p.DB(), nil
 }
 
-// RememberRuntime records that the agent runtime's session id belongs to the project id, so a later session_start carrying only that id is placed.
+func prepend(ids []string, id string) []string {
+	out := []string{id}
+	for _, o := range ids {
+		if o != id {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// RememberRuntime records that the agent runtime's session id belongs to the project id, most recently registered first, so a later session_start carrying only that id is placed.
 func (r *Registry) RememberRuntime(runtimeID, projectID string) {
 	if runtimeID == "" {
 		return
 	}
 	r.mu.Lock()
-	r.runtimes[runtimeID] = projectID
+	r.runtimes[runtimeID] = prepend(r.runtimes[runtimeID], projectID)
 	r.mu.Unlock()
 }
 
@@ -271,11 +311,25 @@ func (r *Registry) forStart(id, runtime string) (*Project, error) {
 			return p, nil
 		}
 	} else {
+		var held []*Project
 		r.mu.Lock()
-		p, ok := r.byID[r.runtimes[runtime]]
+		if runtime != "" {
+			for _, mid := range r.runtimes[runtime] {
+				if p, ok := r.byID[mid]; ok {
+					held = append(held, p)
+				}
+			}
+		}
 		r.mu.Unlock()
-		if ok && runtime != "" {
-			return p, nil
+		if len(held) == 1 {
+			return held[0], nil
+		}
+		if len(held) > 1 {
+			names := make([]string, len(held))
+			for i, p := range held {
+				names[i] = fmt.Sprintf("%s (%s)", p.ID, filepath.Base(p.Repo()))
+			}
+			return nil, &trail.Refusal{Rule: "project_unknown", Fix: "pass project, one of: " + strings.Join(names, ", ")}
 		}
 		if p, err := r.Sole(); err == nil {
 			return p, nil

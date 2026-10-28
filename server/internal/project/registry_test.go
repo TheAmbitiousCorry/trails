@@ -24,7 +24,7 @@ func repoWithID(t *testing.T, id string) string {
 	return repo
 }
 
-func TestSameIDMovesTheProject(t *testing.T) {
+func TestSameIDMoveForm(t *testing.T) {
 	home := t.TempDir()
 	reg := project.NewRegistry(home, 0)
 	defer reg.Close()
@@ -33,7 +33,7 @@ func TestSameIDMovesTheProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := reg.Open(second)
+	p2, err := reg.OpenMove(second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,51 @@ func TestSameIDMovesTheProject(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(home, "shared", "repo"))
 	if strings.TrimSpace(string(b)) != second {
 		t.Errorf("repo file = %q", b)
+	}
+}
+
+func TestSecondRepoWithSameIDIsRefused(t *testing.T) {
+	home := t.TempDir()
+	reg := project.NewRegistry(home, 0)
+	defer reg.Close()
+	first, second := repoWithID(t, "shared"), repoWithID(t, "shared")
+	if _, err := reg.Open(first); err != nil {
+		t.Fatal(err)
+	}
+	_, err := reg.Open(second)
+	var bound *project.IDBound
+	if !errors.As(err, &bound) || bound.ID != "shared" || bound.Bound != first || bound.Repo != second {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "trails register --move") {
+		t.Errorf("message lacks the fix: %v", err)
+	}
+	if p, _ := reg.ByID("shared"); p.Repo() != first {
+		t.Errorf("repo = %q after refusal", p.Repo())
+	}
+	reg.Close()
+	reg2 := project.NewRegistry(home, 0)
+	defer reg2.Close()
+	if _, err := reg2.Open(second); !errors.As(err, &bound) {
+		t.Errorf("refusal from the repo file alone: %v", err)
+	}
+}
+
+func TestBoundPathGoneAllowsTheMove(t *testing.T) {
+	home := t.TempDir()
+	reg := project.NewRegistry(home, 0)
+	defer reg.Close()
+	first, second := repoWithID(t, "shared"), repoWithID(t, "shared")
+	if _, err := reg.Open(first); err != nil {
+		t.Fatal(err)
+	}
+	os.RemoveAll(first)
+	p, err := reg.Open(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Repo() != second {
+		t.Errorf("repo = %q, want %q", p.Repo(), second)
 	}
 }
 
@@ -86,6 +131,32 @@ func TestForStartUsesTheRegisteredRuntime(t *testing.T) {
 		t.Errorf("registered runtime = %v %v, want bbb", p, err)
 	}
 	if p, _, err := reg.Resolve(ctx, trail.Call{Mint: true, Project: "aaa", Runtime: "rt-9"}); err != nil || p.ID != "aaa" {
+		t.Errorf("explicit project must win, got %v %v", p, err)
+	}
+}
+
+func TestForStartRuntimeMappedToSeveralProjects(t *testing.T) {
+	ctx := context.Background()
+	reg := project.NewRegistry(t.TempDir(), 0)
+	defer reg.Close()
+	repoA, repoB := repoWithID(t, "aaa"), repoWithID(t, "bbb")
+	reg.Open(repoA)
+	reg.Open(repoB)
+	start := trail.Call{Mint: true, Runtime: "rt-m"}
+	reg.RememberRuntime("rt-m", "aaa")
+	if p, _, err := reg.Resolve(ctx, start); err != nil || p.ID != "aaa" {
+		t.Errorf("one mapped project = %v %v, want aaa", p, err)
+	}
+	reg.RememberRuntime("rt-m", "bbb")
+	reg.RememberRuntime("rt-m", "aaa")
+	reg.RememberRuntime("rt-m", "aaa")
+	_, _, err := reg.Resolve(ctx, start)
+	var ref *trail.Refusal
+	want := "pass project, one of: aaa (" + filepath.Base(repoA) + "), bbb (" + filepath.Base(repoB) + ")"
+	if !errors.As(err, &ref) || ref.Rule != "project_unknown" || ref.Fix != want {
+		t.Errorf("two mapped projects = %v, want fix %q", err, want)
+	}
+	if p, _, err := reg.Resolve(ctx, trail.Call{Mint: true, Project: "bbb", Runtime: "rt-m"}); err != nil || p.ID != "bbb" {
 		t.Errorf("explicit project must win, got %v %v", p, err)
 	}
 }

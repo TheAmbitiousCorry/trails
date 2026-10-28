@@ -172,3 +172,19 @@ func TestRegisteredRuntimeSelectsTheProject(t *testing.T) {
 		t.Errorf("session landed in %v, want project %s", p, idB)
 	}
 }
+
+func TestRuntimeRegisteredInTwoReposRefusesWithBoth(t *testing.T) {
+	repoA, repoB := t.TempDir(), t.TempDir()
+	_, addr := serveHome(t, t.TempDir(), repoA, repoB)
+	idA, _ := store.ReadID(repoA)
+	idB, _ := store.ReadID(repoB)
+	call := connect(t, addr)
+
+	postAPI(t, addr, "/api/projects", map[string]any{"repo": repoA, "runtime_session_id": "rt-8"})
+	postAPI(t, addr, "/api/projects", map[string]any{"repo": repoB, "runtime_session_id": "rt-8"})
+	res, err := call("session_start", map[string]any{"task": "parent dir", "runtime_session_id": "rt-8"})
+	txt := refusal(t, res, err)
+	if !strings.HasPrefix(txt, "project_unknown:") || !strings.Contains(txt, idA) || !strings.Contains(txt, idB) {
+		t.Fatalf("two registered repos = %q, want a refusal naming %s and %s", txt, idA, idB)
+	}
+}

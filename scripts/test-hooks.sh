@@ -305,4 +305,19 @@ expect_empty "subagent start without a project id" "$out"
 out=$(printf '{"session_id":"rt-x","agent_id":"ag-1"}' | TRAILS_BLOCK_FORMAT=block "$hooks/trails-stop.sh")
 expect_empty "subagent stop without an open session" "$out"
 
+# A directory with no id of its own: the start hook registers the repos one and two levels below it and lists them; a directory with no ids anywhere gets the nudge.
+mkdir -p "$tmp/parent/one/.trail" "$tmp/parent/group/two/.trail" "$tmp/parent/group/node_modules/x/.trail" "$tmp/bare/empty"
+echo 'idone' > "$tmp/parent/one/.trail/id"
+echo 'idtwo' > "$tmp/parent/group/two/.trail/id"
+echo 'idskip' > "$tmp/parent/group/node_modules/x/.trail/id"
+out=$(printf '{"session_id":"rt-parent","cwd":"%s"}' "$tmp/parent" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-session-start.sh")
+expect "parent directory session-start" '.hookSpecificOutput.additionalContext == "Trails projects under this directory: idone (one), idtwo (group/two)\nTrails runtime_session_id: rt-parent"' "$out"
+projects=$(curl -sf "$url/api/projects")
+for want in idone idtwo; do
+  printf '%s' "$projects" | grep -q "$want" || fail "parent directory: $want not registered: $projects"
+done
+printf '%s' "$projects" | grep -q idskip && fail "parent directory: node_modules repo was registered"
+out=$(printf '{"session_id":"rt-bare","cwd":"%s"}' "$tmp/bare" | TRAILS_CONTEXT_FORMAT=hook-json "$hooks/trails-session-start.sh")
+expect "directory with no ids" '.hookSpecificOutput.additionalContext == "Trails: this repo has no .trail/id; run trails register to put it on the trail"' "$out"
+
 echo "hooks ok"
