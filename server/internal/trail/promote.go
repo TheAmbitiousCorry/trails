@@ -27,6 +27,7 @@ type stagedPass struct {
 
 // promoteStaged pins the landing commit of each staged entry whose work is now committed, promotes the entries whose work reached the base branch, and abandons the ones whose branch is gone.
 // Work reached the base branch when the landing commit is an ancestor of a base ref (merged), or when every file and range anchor exists on one base ref with its stored hash (landed by content: a squash, rebase or cherry-pick).
+// The base is the project's current one, read from the primary: an entry staged on the current base branch is promoted outright, and an entry staged against another base name is judged against the current base refs, since the stored name is no longer where work lands.
 // checker.Repo is the primary checkout; refs are shared by every worktree of the repository, so it sees every branch. The pass never fetches.
 // A promoted entry is an ordinary entry from here on: the sweep's anchor pass that follows checks it against the primary like any other, so a revert or later work makes it stale.
 func promoteStaged(ctx context.Context, db *sql.DB, checker anchor.Checker, stamp string) (stagedPass, error) {
@@ -49,8 +50,19 @@ func promoteStaged(ctx context.Context, db *sql.DB, checker anchor.Checker, stam
 	if err := rows.Close(); err != nil {
 		return pass, err
 	}
+	current, currentRefs := staged.Base(ctx, top)
 	for _, h := range held {
+		if current != "" && h.branch == current {
+			if err := promote(ctx, db, h, func(x execer) error { return sweepEvent(ctx, x, stamp, h.id, "promoted") }); err != nil {
+				return pass, err
+			}
+			pass.promoted++
+			continue
+		}
 		refs := staged.BaseRefs(ctx, top, h.baseName)
+		if current != "" && current != h.baseName {
+			refs = currentRefs
+		}
 		if len(refs) == 0 {
 			pass.baseUnresolved = true
 			continue
