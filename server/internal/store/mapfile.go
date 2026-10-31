@@ -37,6 +37,8 @@ type MapTag struct {
 type Map struct {
 	Signs []*MapSign
 	Tags  []MapTag
+	// HasSigns and HasTags record that the section heading was present, so a file without one leaves that table alone.
+	HasSigns, HasTags bool
 }
 
 type mapSection int
@@ -64,9 +66,11 @@ func ParseMap(r io.Reader) (Map, error) {
 			switch strings.TrimSpace(text[2:]) {
 			case "Signs":
 				section = sectionSigns
+				m.HasSigns = true
 				stack = nil
 			case "Tags":
 				section = sectionTags
+				m.HasTags = true
 			default:
 				section = sectionNone
 			}
@@ -121,7 +125,7 @@ func ParseMap(r io.Reader) (Map, error) {
 }
 
 // ApplyMap reconciles the sign tree and the tag vocabulary with <repo>/.trail/map.md in one transaction.
-// A missing file changes nothing. Listed signs that do not exist are created; existing ones keep all they have.
+// A missing file changes nothing, and a file without a "# Signs" or "# Tags" heading leaves signs or tags alone. Listed signs that do not exist are created; existing ones keep all they have.
 // An unlisted sign is deleted only when it has no entries and no child signs, otherwise it is kept and logged.
 // Listed tags are upserted as defined; unlisted defined tags are set undefined, never deleted.
 func (s *Store) ApplyMap(repo string) error {
@@ -142,15 +146,19 @@ func (s *Store) ApplyMap(repo string) error {
 		return err
 	}
 	defer tx.Rollback()
-	listed := map[string]bool{}
-	if err := applyMapSigns(ctx, tx, "root", m.Signs, listed); err != nil {
-		return err
+	if m.HasSigns {
+		listed := map[string]bool{}
+		if err := applyMapSigns(ctx, tx, "root", m.Signs, listed); err != nil {
+			return err
+		}
+		if err := pruneMapSigns(ctx, tx, listed); err != nil {
+			return err
+		}
 	}
-	if err := pruneMapSigns(ctx, tx, listed); err != nil {
-		return err
-	}
-	if err := applyMapTags(ctx, tx, m.Tags); err != nil {
-		return err
+	if m.HasTags {
+		if err := applyMapTags(ctx, tx, m.Tags); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

@@ -189,3 +189,35 @@ func TestMapTagWithoutColonFailsOpen(t *testing.T) {
 		t.Errorf("error %q does not name line 5", err)
 	}
 }
+
+func TestMapWithoutSignsOrTagsSectionsTouchesNeither(t *testing.T) {
+	home, repo := t.TempDir(), t.TempDir()
+	st, err := Open(home, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, q := range []string{
+		`INSERT INTO signs (id, parent_id, title, position) VALUES ('empty-sign', 'root', 'Empty sign', 0)`,
+		`INSERT INTO signs (id, parent_id, title, position) VALUES ('held-sign', 'root', 'Held sign', 1)`,
+		`INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tier, decided_by, decided_at, created_at, updated_at)
+			VALUES ('held-note', 'held-sign', 'summary', 'Held', 'x', '{"type":"doc","content":[]}', 1, 'verified', 'seed', 'now', 'now', 'now')`,
+		`INSERT INTO tags (id, description, defined) VALUES ('billing', 'Money', 1)`,
+	} {
+		if _, err := st.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	signsBefore := signRows(t, st)
+
+	writeMapFile(t, repo, "base: staging\n")
+	if err := st.ApplyMap(repo); err != nil {
+		t.Fatal(err)
+	}
+	if got := signRows(t, st); !reflect.DeepEqual(got, signsBefore) {
+		t.Errorf("signs = %v, want %v", got, signsBefore)
+	}
+	if desc, defined, ok := tagRow(t, st, "billing"); !ok || defined != 1 || desc != "Money" {
+		t.Errorf("tag billing = %q defined %d present %v, want untouched", desc, defined, ok)
+	}
+}
