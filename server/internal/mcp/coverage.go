@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
+	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 	"github.com/TheAmbitiousCorry/trails/internal/view"
@@ -50,6 +51,7 @@ type coverageOut struct {
 	Gaps     []coverageGap      `json:"gaps"`
 	Stale    []coverageStale    `json:"stale"`
 	OffTrail []coverageOffTrail `json:"off_trail"`
+	Unmapped []coverageUnmapped `json:"unmapped"`
 	Lines    int                `json:"lines"`
 }
 
@@ -163,8 +165,9 @@ func (p *placer) signFor(rel string) string {
 	return p.tree.root
 }
 
-func coverage(ctx context.Context, db *sql.DB, in coverageIn) (coverageOut, error) {
-	out := coverageOut{Gaps: []coverageGap{}, Stale: []coverageStale{}, OffTrail: []coverageOffTrail{}}
+func coverage(ctx context.Context, p *project.Project, in coverageIn) (coverageOut, error) {
+	db := p.DB()
+	out := coverageOut{Gaps: []coverageGap{}, Stale: []coverageStale{}, OffTrail: []coverageOffTrail{}, Unmapped: []coverageUnmapped{}}
 	limit, err := coverageLimit(ctx, db, in.Limit)
 	if err != nil {
 		return out, err
@@ -202,7 +205,14 @@ func coverage(ctx context.Context, db *sql.DB, in coverageIn) (coverageOut, erro
 	if out.Stale, err = staleItems(ctx, db, tree, in.Within, limit); err != nil {
 		return out, err
 	}
-	if out.OffTrail, err = offTrailItems(ctx, db, tree, in.Within, limit); err != nil {
+	scope, err := coverScope(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	if out.OffTrail, err = offTrailItems(ctx, db, scope, tree, in.Within, limit); err != nil {
+		return out, err
+	}
+	if out.Unmapped, err = unmappedItems(ctx, p, tree, in.Within, limit); err != nil {
 		return out, err
 	}
 	out.Lines = countLines(out)
@@ -226,29 +236,41 @@ func coverageLimit(ctx context.Context, db *sql.DB, asked int) (int, error) {
 	return min(n, int(max)), nil
 }
 
-// staleItems lists live entries whose anchors failed, most failed anchors first.
-func staleItems(ctx context.Context, db *sql.DB, tree signTree, within string, limit int) ([]coverageStale, error) {
+type staleRow struct{ id, title, sign string }
+
+// staleRows is the one stale predicate: live entries, stale by tier or by a failed anchor, that the call's Viewer sees. coverage lists them and orient counts them.
+func staleRows(ctx context.Context, db *sql.DB) ([]staleRow, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, title, sign_id FROM entries e WHERE e.tier != 'dormant' AND e.superseded_by IS NULL
 		AND (e.tier = 'stale' OR EXISTS(SELECT 1 FROM anchors a WHERE a.entry_id = e.id AND a.ok = 0)) ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
-	type row struct{ id, title, sign string }
-	var found []row
+	defer rows.Close()
+	var found []staleRow
 	viewer := view.From(ctx)
 	for rows.Next() {
-		var r row
+		var r staleRow
 		if err := rows.Scan(&r.id, &r.title, &r.sign); err != nil {
-			rows.Close()
 			return nil, err
 		}
-		if viewer.Sees(r.id) && tree.under(r.sign, within) {
+		if viewer.Sees(r.id) {
 			found = append(found, r)
 		}
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	return found, rows.Err()
+}
+
+// staleItems lists live entries whose anchors failed, most failed anchors first.
+func staleItems(ctx context.Context, db *sql.DB, tree signTree, within string, limit int) ([]coverageStale, error) {
+	all, err := staleRows(ctx, db)
+	if err != nil {
 		return nil, err
+	}
+	var found []staleRow
+	for _, r := range all {
+		if tree.under(r.sign, within) {
+			found = append(found, r)
+		}
 	}
 	out := []coverageStale{}
 	for _, r := range found {
@@ -269,8 +291,8 @@ func staleItems(ctx context.Context, db *sql.DB, tree signTree, within string, l
 }
 
 // offTrailItems lists paths sessions read natively in the window that no live entry anchors, most-read first.
-// Anchored is the pre-read hook's own decision, so the two never disagree.
-func offTrailItems(ctx context.Context, db *sql.DB, tree signTree, within string, limit int) ([]coverageOffTrail, error) {
+// Anchored is anchor.Covers, the pre-read hook's own decision, so the two never disagree.
+func offTrailItems(ctx context.Context, db *sql.DB, scope anchor.Scope, tree signTree, within string, limit int) ([]coverageOffTrail, error) {
 	days, err := search.Setting(ctx, db, "coverage_window_days")
 	if err != nil {
 		return nil, err
@@ -307,7 +329,7 @@ func offTrailItems(ctx context.Context, db *sql.DB, tree signTree, within string
 		if len(out) == limit {
 			break
 		}
-		anchored, err := anchoringEntries(ctx, db, r.path)
+		anchored, err := anchoringEntries(ctx, db, scope, r.path)
 		if err != nil {
 			return nil, err
 		}

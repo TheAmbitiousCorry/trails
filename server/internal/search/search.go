@@ -41,6 +41,7 @@ var defaults = map[string]float64{
 	"paraphrase_threshold": 0.5,
 	"open_gap_cap":         20,
 	"dismiss_cap":          3,
+	"gap_close_cap":        10,
 	"coverage_limit":       10,
 	"coverage_limit_max":   25,
 	"coverage_window_days": 90,
@@ -290,6 +291,38 @@ func coverage(ctx context.Context, db DBTX, q string) (map[string]float64, error
 	return out, nil
 }
 
+// termThreshold is the share of a query's content terms an entry must contain: one or two terms need every term, whatever search_threshold says.
+func termThreshold(q string, threshold float64) float64 {
+	if n := len(ContentTerms(q)); n >= 1 && n <= 2 {
+		return 1
+	}
+	return threshold
+}
+
+// Covers reports whether the entry's title, read_when and body contain at least search_threshold of q's content terms, the rule Query applies to every entry.
+// A query with no content terms covers nothing.
+func Covers(ctx context.Context, db DBTX, q, entryID string) (bool, error) {
+	terms := ContentTerms(q)
+	if len(terms) == 0 {
+		return false, nil
+	}
+	threshold, err := Setting(ctx, db, "search_threshold")
+	if err != nil {
+		return false, err
+	}
+	have := 0
+	for _, t := range terms {
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries_fts WHERE entries_fts MATCH ? AND entry_id = ?`, `"`+t+`"`, entryID).Scan(&n); err != nil {
+			return false, err
+		}
+		if n > 0 {
+			have++
+		}
+	}
+	return float64(have)/float64(len(terms)) >= termThreshold(q, threshold), nil
+}
+
 // Query returns up to limit hits that contain at least search_threshold of the query's content terms (the words left after stopwords
 // and words under three letters), best first by bm25. miss is true when none does. bm25 alone cannot tell a miss: one shared noun in
 // a corpus of a hundred entries scores like a real hit, while a two-word question against a long entry scores like noise.
@@ -311,10 +344,7 @@ func Query(ctx context.Context, db DBTX, q, taskType string, limit int) (hits []
 			return nil, false, err
 		}
 	}
-	// With one or two content terms a partial match is a coin flip, so every term must be present.
-	if n := len(ContentTerms(q)); n >= 1 && n <= 2 {
-		threshold = 1
-	}
+	threshold = termThreshold(q, threshold)
 	for _, h := range all {
 		if small || cover[h.EntryID] >= threshold {
 			hits = append(hits, h)

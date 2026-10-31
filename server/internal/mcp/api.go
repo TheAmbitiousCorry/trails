@@ -12,7 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/project"
+	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 	"github.com/TheAmbitiousCorry/trails/internal/view"
@@ -219,7 +221,11 @@ func preRead(ctx context.Context, st *project.Project, sid string, in map[string
 		return preReadReply{Decision: decisionUnmapped}, nil
 	}
 	rel := repoRelative(st.Paths(), p)
-	anchors, err := anchoringEntries(ctx, st.DB(), rel)
+	scope, err := coverScope(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	anchors, err := anchoringEntries(ctx, st.DB(), scope, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +274,11 @@ func preReadMiss(ctx context.Context, p *project.Project, in map[string]any) (an
 	if p == nil || path == "" {
 		return preReadReply{Decision: decisionUnmapped}, nil
 	}
-	anchors, err := anchoringEntries(ctx, p.DB(), repoRelative(p.Paths(), path))
+	scope, err := coverScope(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	anchors, err := anchoringEntries(ctx, p.DB(), scope, repoRelative(p.Paths(), path))
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +303,11 @@ func offTrail(ctx context.Context, st *project.Project, sid string, in map[strin
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'off_trail', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
-	sp, found, err := anchoredEntry(ctx, st.DB(), rel)
+	scope, err := coverScope(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	sp, found, err := anchoredEntry(ctx, st.DB(), scope, rel)
 	if err != nil || !found {
 		return struct{}{}, err
 	}
@@ -315,7 +329,11 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	if _, err := st.DB().ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', ?, 'ok')`, sid, store.Now(), rel); err != nil {
 		return nil, err
 	}
-	all, err := anchoringEntries(ctx, st.DB(), rel)
+	scope, err := coverScope(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	all, err := anchoringEntries(ctx, st.DB(), scope, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -323,34 +341,34 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	return reply, nil
 }
 
-// anchoringEntries lists every live entry the Viewer in ctx is shown whose file, range or dir anchor is rel or a directory containing it, oldest first.
-func anchoringEntries(ctx context.Context, db *sql.DB, rel string) ([]signpost, error) {
-	rows, err := db.QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
-		FROM anchors a JOIN entries e ON e.id = a.entry_id
-		WHERE a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
-		ORDER BY e.created_at, e.id`)
+// coverScope is anchor.Scope for the project: dir anchors are measured against the checkout the Viewer in ctx reads from, the primary when it names none.
+func coverScope(ctx context.Context, p *project.Project) (anchor.Scope, error) {
+	max, err := search.Setting(ctx, p.DB(), "coverage_dir_max")
+	if err != nil {
+		return anchor.Scope{}, err
+	}
+	repo := view.From(ctx).Checkout
+	if repo == "" {
+		repo = p.Repo()
+	}
+	return anchor.Scope{Tracked: anchor.NewLazyTracked(ctx, repo), DirMax: int(max)}, nil
+}
+
+// anchoringEntries lists every live entry the Viewer in ctx is shown that covers rel (anchor.Covers), oldest first.
+func anchoringEntries(ctx context.Context, db *sql.DB, scope anchor.Scope, rel string) ([]signpost, error) {
+	live, err := anchor.LiveAnchors(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	seen := map[string]bool{}
 	var out []signpost
-	viewer := view.From(ctx)
-	for rows.Next() {
-		var id, readWhen, typ, ap, created string
-		if err := rows.Scan(&id, &readWhen, &typ, &ap, &created); err != nil {
-			return nil, err
-		}
-		if !viewer.Sees(id) {
-			continue
-		}
-		ap = strings.TrimSuffix(path.Clean(ap), "/")
-		if (typ != "dir" && ap == rel || typ == "dir" && strings.HasPrefix(rel, ap+"/")) && !seen[id] {
-			seen[id] = true
-			out = append(out, signpost{id, readWhen})
+	for _, a := range live {
+		if !seen[a.EntryID] && scope.Covers(a, rel) {
+			seen[a.EntryID] = true
+			out = append(out, signpost{a.EntryID, a.ReadWhen})
 		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // repoRelative reports p relative to the first bound checkout that contains it, else as given.
@@ -366,36 +384,26 @@ func repoRelative(repos []string, p string) string {
 	return path.Clean(filepath.ToSlash(p))
 }
 
-// anchoredEntry returns the live entry whose file, range or dir anchor covers rel; a file or range match beats a dir.
-func anchoredEntry(ctx context.Context, db *sql.DB, rel string) (signpost, bool, error) {
-	rows, err := db.QueryContext(ctx, `SELECT e.id, e.read_when, a.type, a.path_or_url
-		FROM anchors a JOIN entries e ON e.id = a.entry_id
-		WHERE a.type IN ('file', 'range', 'dir') AND e.tier != 'dormant' AND e.superseded_by IS NULL
-		ORDER BY e.created_at, e.id`)
+// anchoredEntry returns the live entry that covers rel (anchor.Covers); a file or range match beats a dir, and the deepest dir wins.
+func anchoredEntry(ctx context.Context, db *sql.DB, scope anchor.Scope, rel string) (signpost, bool, error) {
+	live, err := anchor.LiveAnchors(ctx, db)
 	if err != nil {
 		return signpost{}, false, err
 	}
-	defer rows.Close()
 	var best signpost
 	bestLen := -1
-	viewer := view.From(ctx)
-	for rows.Next() {
-		var id, readWhen, typ, ap string
-		if err := rows.Scan(&id, &readWhen, &typ, &ap); err != nil {
-			return signpost{}, false, err
-		}
-		if !viewer.Sees(id) {
+	for _, a := range live {
+		if !scope.Covers(a, rel) {
 			continue
 		}
-		ap = strings.TrimSuffix(path.Clean(ap), "/")
-		switch {
-		case typ != "dir" && ap == rel:
-			return signpost{id, readWhen}, true, rows.Err()
-		case typ == "dir" && strings.HasPrefix(rel, ap+"/") && len(ap) > bestLen:
-			best, bestLen = signpost{id, readWhen}, len(ap)
+		if a.Type != "dir" {
+			return signpost{a.EntryID, a.ReadWhen}, true, nil
+		}
+		if len(a.Path) > bestLen {
+			best, bestLen = signpost{a.EntryID, a.ReadWhen}, len(a.Path)
 		}
 	}
-	return best, bestLen >= 0, rows.Err()
+	return best, bestLen >= 0, nil
 }
 
 type gapRef struct {
@@ -447,7 +455,11 @@ func stopCheck(ctx context.Context, st *project.Project, sid string, in map[stri
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	pending, err := trail.UnconfirmedEdits(ctx, st.DB(), sid)
+	scope, err := coverScope(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := trail.UnconfirmedEdits(ctx, st.DB(), scope, sid)
 	if err != nil {
 		return nil, err
 	}

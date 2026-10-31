@@ -17,7 +17,7 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 - `versions(id, entry_id, body_json, title, read_when, anchors_json, actor, created_at)`
 - `sessions(id, actor, task, task_type, runtime_session_id, blocks, started_at, ended_at, ended_by)`
 - `events(id, session_id, at, tool, target, depth, result, shown_json)`
-- `gaps(id, sign_id, session_id, query, paths_json, state, resolution, target_id, reason, opened_at, resolved_at)`
+- `gaps(id, sign_id, session_id, query, paths_json, state, resolution, target_id, reason, opened_at, resolved_at, resolved_by)`
 - `tags(id, description, defined)`: the tag vocabulary; a tag written before it is defined has `defined = 0` and is absent from orient
 - `ids(id, freed_at)`: slugs of deleted entries, so an id is never reused
 - `settings(key, value)` for caps and thresholds: `fan_out_cap`, `search_threshold`, `duplicate_threshold`, `paraphrase_threshold`, `open_gap_cap`, `dismiss_cap`, `coverage_limit`, `coverage_limit_max`, `coverage_window_days`, `coverage_dir_max`, and an optional `cap_<kind>_words` per kind

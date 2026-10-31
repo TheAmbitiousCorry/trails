@@ -232,8 +232,8 @@ func TestConfirmResolveGapSessionEnd(t *testing.T) {
 		t.Fatalf("merged alias is not searchable: %v", hit)
 	}
 
-	// Another session cannot resolve this session's gap, and a resolved gap stays resolved.
-	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id}, "unknown_gap")
+	// A resolved gap stays resolved, whoever asks.
+	other.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id}, "gap_closed")
 	a.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": id}, "gap_closed")
 
 	end := a.ok("session_end", map[string]any{})

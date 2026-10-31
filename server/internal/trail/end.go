@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"path"
 	"strings"
 
@@ -90,7 +91,7 @@ type EditedEntry struct {
 }
 
 // UnconfirmedEdits lists the session's edited and unresolved entries the Viewer in ctx is shown, in entry id order. An entry is unresolved when the latest ok edit event on a path it anchors is newer than the latest ok write, scores or confirm event that targets it.
-func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]EditedEntry, error) {
+func UnconfirmedEdits(ctx context.Context, db *sql.DB, scope anchor.Scope, sessionID string) ([]EditedEntry, error) {
 	rows, err := db.QueryContext(ctx, `SELECT e.id, a.type, a.path_or_url, ed.id, ed.target,
 			COALESCE((SELECT MAX(r.id) FROM events r WHERE r.session_id = ed.session_id AND r.target = e.id AND r.result = 'ok' AND r.tool IN ('write', 'write_scores', 'confirm')), 0)
 		FROM events ed, anchors a JOIN entries e ON e.id = a.entry_id
@@ -118,7 +119,7 @@ func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]Edit
 			continue
 		}
 		ap = strings.TrimSuffix(path.Clean(ap), "/")
-		if !(typ != "dir" && ap == target) && !(typ == "dir" && strings.HasPrefix(target, ap+"/")) {
+		if !scope.Covers(anchor.Live{Type: typ, Path: ap}, target) {
 			continue
 		}
 		resolved[id] = resolvedID
@@ -145,7 +146,7 @@ func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]Edit
 }
 
 // EndSession closes the session for the agent, or refuses with its open gaps listed. A session already closed is reported, not changed.
-func EndSession(ctx context.Context, db *sql.DB, sessionID string) (EndCounts, error) {
+func EndSession(ctx context.Context, db *sql.DB, scope anchor.Scope, sessionID string) (EndCounts, error) {
 	gaps, err := OpenGaps(ctx, db, sessionID)
 	if err != nil {
 		return EndCounts{}, err
@@ -164,7 +165,7 @@ func EndSession(ctx context.Context, db *sql.DB, sessionID string) (EndCounts, e
 		}
 		return EndCounts{}, &Refusal{Rule: "gaps_open", Fix: "resolve each with resolve_gap (gap_id as an integer, action fill, merge or dismiss; entry_id for fill or merge, reason for dismiss), then call session_end again. " + strings.Join(parts, "; ")}
 	}
-	edits, err := UnconfirmedEdits(ctx, db, sessionID)
+	edits, err := UnconfirmedEdits(ctx, db, scope, sessionID)
 	if err != nil {
 		return EndCounts{}, err
 	}

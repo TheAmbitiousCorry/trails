@@ -21,7 +21,7 @@ input_schema: {
 }
 
 tool coverage
-description: Read-only work list for keeping the map current. Returns gaps (every session's open gaps, oldest first), stale (entries whose anchors failed, with the failed anchors) and off_trail (paths sessions read natively recently that no entry anchors, most-read first, count is sessions). Each item carries sign, the sign to write under as parent_sign_id. limit caps each list (default 10, max 25); within is a sign id that keeps items under it.
+description: Read-only work list for keeping the map current. Returns gaps (every session's open gaps, oldest first), stale (entries whose anchors failed, with the failed anchors), off_trail (paths sessions read natively recently that no entry anchors, most-read first, count is sessions) and unmapped (git-tracked directories no entry covers, most-committed first: files, unmapped, commits_90d; loose means only the files directly in that directory, named in names). Each item carries sign, the sign to write under as parent_sign_id. limit caps each list (default 10, max 25); within is a sign id that keeps items under it.
 input_schema: {
   "additionalProperties": false,
   "properties": {
@@ -112,7 +112,7 @@ input_schema: {
 }
 
 tool resolve_gap
-description: Close one of your open gaps. action fill: entry_id is an entry you wrote this session. action merge: entry_id is an existing entry, and the gap's query becomes an alias on it. action dismiss: reason says why, 200 characters max; at most three dismissals per session.
+description: Close an open gap: your own, or another session's from coverage when the entry covers its query (else gap_mismatch; at most ten per session). action fill: entry_id is an entry you wrote this session. action merge: entry_id is an existing entry, and the gap's query becomes an alias on it. action dismiss: your own gaps only; reason says why, 200 characters max; at most three dismissals per session.
 input_schema: {
   "additionalProperties": false,
   "properties": {
@@ -400,7 +400,9 @@ refusal rules
 - dismiss_cap
 - duplicate
 - fill_target
+- gap_close_cap
 - gap_closed
+- gap_mismatch
 - gaps_open
 - immutable
 - move_scope

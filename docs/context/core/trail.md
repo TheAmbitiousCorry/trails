@@ -33,11 +33,13 @@ One row per call, append-only:
 
 A gap is opened by the server when a `search` returns nothing above the relevance threshold.
 
-The gap row holds the sign the reader was standing at (the target of the session's latest successful `look`, or the home sign when that target was an entry; none when the session has not looked or its last look was a tag or kind query), the query, and the session, through which the task is reachable. A gap is resolved through `resolve_gap` by the session that opened it, with one of:
+The gap row holds the sign the reader was standing at (the target of the session's latest successful `look`, or the home sign when that target was an entry; none when the session has not looked or its last look was a tag or kind query), the query, and the session, through which the task is reachable. A gap is resolved through `resolve_gap`, with one of:
 
 - `fill`: an `entry_id` this session wrote
 - `merge`: an existing `entry_id`; the query is added to that entry's `read_when` aliases
-- `dismiss`: a reason, 200 characters max
+- `dismiss`: a reason, 200 characters max; only the session that opened the gap may dismiss it
+
+The session that opened the gap may fill or merge it freely. Another session may fill or merge an open gap (the gap ids come from `coverage`) only when the gap's query is covered by the target entry: at least `search_threshold` of the query's content terms appear in the entry's title, `read_when` and body, the rule `search` applies to every entry, so one or two terms need all of them. Otherwise the call is refused `gap_mismatch`. A session may close at most `gap_close_cap` (setting, default 10) gaps it did not open; the next is refused `gap_close_cap`. A dismissal of another session's gap is refused `unknown_gap`. Every resolution records the resolving session in `resolved_by`, the owner's included, so a gap another session closed leaves the opener's `session_end` and shows who closed it.
 
 `session_end` refuses with the session's open gaps listed while any remain; the fix states the `resolve_gap` shape once and, under each gap, lists as `fill candidates` the entries this session wrote (a version with the session as actor, live) whose `read_when` shares at least one content term with the gap's query. The list is a suggestion and closes nothing. The runtime's stop hook refuses to end a turn whose Trails session is open (gaps or [edited entries](#edited-entries)), at most twice; the third attempt ends the session with `ended_by: forced` and its gaps stay open and show in the browser's gap queue. When the server is unreachable the hook passes through. A session may dismiss at most three gaps; the fourth dismissal is refused and the gap stays open.
 

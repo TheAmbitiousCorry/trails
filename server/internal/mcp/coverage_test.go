@@ -116,8 +116,8 @@ func TestCoverageGapsStaleAndOffTrail(t *testing.T) {
 		t.Errorf("off_trail is not ordered by count: %v", off)
 	}
 
-	if _, has := out["unmapped"]; has {
-		t.Error("unmapped is not built yet and must not be in the output")
+	if u := list(t, out, "unmapped"); len(u) != 0 {
+		t.Errorf("a checkout that is not a git repository has no unmapped items, got %v", u)
 	}
 	if out["lines"] == nil {
 		t.Error("response lacks lines")

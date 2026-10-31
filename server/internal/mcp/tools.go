@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/TheAmbitiousCorry/trails/internal/view"
 	"strconv"
 	"strings"
@@ -43,6 +44,8 @@ type orient struct {
 	RootSign   signRef  `json:"root_sign"`
 	EdgeCount  int      `json:"edge_count"`
 	EntryCount int      `json:"entry_count"`
+	StaleCount int      `json:"stale_count"`
+	OpenGaps   int      `json:"open_gaps"`
 	Notice     string   `json:"notice,omitempty"`
 	Tags       []tagDef `json:"tags"`
 	HowToWalk  string   `json:"how_to_walk"`
@@ -492,8 +495,8 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "resolve_gap",
-		Description: "Close one of your open gaps. action fill: entry_id is an entry you wrote this session. action merge: entry_id is an existing entry, and the gap's query becomes an alias on it. " +
-			"action dismiss: reason says why, 200 characters max; at most three dismissals per session.",
+		Description: "Close an open gap: your own, or another session's from coverage when the entry covers its query (else gap_mismatch; at most ten per session). action fill: entry_id is an entry you wrote this session. action merge: entry_id is an existing entry, and the gap's query becomes an alias on it. " +
+			"action dismiss: your own gaps only; reason says why, 200 characters max; at most three dismissals per session.",
 	}, trail.Record(reg, "resolve_gap", func(ctx context.Context, _ *sdk.CallToolRequest, in resolveGapIn, p *project.Project) (*sdk.CallToolResult, resolveGapOut, error) {
 		err := trail.ResolveGap(ctx, p.DB(), in.SessionID, trail.Resolution{GapID: in.GapID, Action: in.Action, TargetID: in.EntryID, Reason: in.Reason})
 		if err != nil {
@@ -509,11 +512,12 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 
 	sdk.AddTool(srv, &sdk.Tool{
 		Name: "coverage",
-		Description: "Read-only work list for keeping the map current. Returns gaps (every session's open gaps, oldest first), stale (entries whose anchors failed, with the failed anchors) " +
-			"and off_trail (paths sessions read natively recently that no entry anchors, most-read first, count is sessions). Each item carries sign, the sign to write under as parent_sign_id. " +
+		Description: "Read-only work list for keeping the map current. Returns gaps (every session's open gaps, oldest first), stale (entries whose anchors failed, with the failed anchors), " +
+			"off_trail (paths sessions read natively recently that no entry anchors, most-read first, count is sessions) and unmapped (git-tracked directories no entry covers, most-committed first: files, unmapped, commits_90d; " +
+			"loose means only the files directly in that directory, named in names). Each item carries sign, the sign to write under as parent_sign_id. " +
 			"limit caps each list (default 10, max 25); within is a sign id that keeps items under it.",
 	}, trail.Record(reg, "coverage", func(ctx context.Context, _ *sdk.CallToolRequest, in coverageIn, p *project.Project) (*sdk.CallToolResult, coverageOut, error) {
-		out, err := coverage(ctx, p.DB(), in)
+		out, err := coverage(ctx, p, in)
 		return nil, out, err
 	}))
 
@@ -522,7 +526,11 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 		Description: "End the session when the task is done. Refuses while the session has open gaps or entries anchored to files you edited and lists them; resolve each gap with resolve_gap, write or confirm each entry, then call again. " +
 			"Returns closed and the counts of reads, writes and confirms.",
 	}, trail.Record(reg, "session_end", func(ctx context.Context, _ *sdk.CallToolRequest, in sessionEndIn, p *project.Project) (*sdk.CallToolResult, sessionEndOut, error) {
-		c, err := trail.EndSession(ctx, p.DB(), in.SessionID)
+		scope, err := coverScope(ctx, p)
+		if err != nil {
+			return nil, sessionEndOut{}, err
+		}
+		c, err := trail.EndSession(ctx, p.DB(), scope, in.SessionID)
 		if err != nil {
 			return nil, sessionEndOut{}, err
 		}
@@ -559,11 +567,27 @@ func orientView(ctx context.Context, db *sql.DB) (orient, error) {
 	if err := rows.Err(); err != nil {
 		return o, err
 	}
-	full, err := trail.GapsFull(ctx, db)
-	if full {
-		o.Notice = "Open gaps are at the cap. A search miss is still logged but opens no gap until some are resolved."
+	stale, err := staleRows(ctx, db)
+	if err != nil {
+		return o, err
 	}
-	return o, err
+	o.StaleCount = len(stale)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gaps WHERE state = 'open'`).Scan(&o.OpenGaps); err != nil {
+		return o, err
+	}
+	full, err := trail.GapsFull(ctx, db)
+	if err != nil {
+		return o, err
+	}
+	var notes []string
+	if full {
+		notes = append(notes, "Open gaps are at the cap. A search miss is still logged but opens no gap until some are resolved.")
+	}
+	if o.StaleCount > 0 || o.OpenGaps > 0 {
+		notes = append(notes, fmt.Sprintf("%d stale, %d open gaps: the trails:navigate skill works through them", o.StaleCount, o.OpenGaps))
+	}
+	o.Notice = strings.Join(notes, "; ")
+	return o, nil
 }
 
 // serveEntry refreshes the entry's anchors and returns it; a stale entry keeps its body and gains a notice naming the failed anchors, because withholding it would make the reader guess instead.

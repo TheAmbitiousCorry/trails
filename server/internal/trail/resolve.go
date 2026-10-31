@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 	"strings"
 	"unicode/utf8"
 
@@ -21,19 +22,26 @@ type Resolution struct {
 	Reason   string
 }
 
-// ResolveGap closes one of the session's open gaps. Fill points at an entry the session wrote, merge adds the gap's query as an alias on an existing entry, dismiss states a reason and is limited to dismiss_cap per session.
+// ResolveGap closes an open gap. Fill points at an entry the session wrote, merge adds the gap's query as an alias on an existing entry, dismiss states a reason and is limited to dismiss_cap per session.
+// Another session's gap can be filled or merged when the target entry covers its query (gap_mismatch otherwise), at most gap_close_cap times per session; dismiss is the opener's alone.
 func ResolveGap(ctx context.Context, db *sql.DB, sessionID string, r Resolution) error {
-	var state string
+	var state, opener string
 	var query sql.NullString
-	err := db.QueryRowContext(ctx, `SELECT state, query FROM gaps WHERE id = ? AND session_id = ?`, r.GapID, sessionID).Scan(&state, &query)
-	if errors.Is(err, sql.ErrNoRows) {
-		return &Refusal{Rule: "unknown_gap", Fix: "gap ids come from the session_end refusal; this session can resolve only its own gaps"}
+	err := db.QueryRowContext(ctx, `SELECT state, query, session_id FROM gaps WHERE id = ?`, r.GapID).Scan(&state, &query, &opener)
+	foreign := opener != sessionID
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && foreign && r.Action == "dismiss") {
+		return &Refusal{Rule: "unknown_gap", Fix: "gap ids come from the session_end refusal or from coverage; fill or merge another session's gap, dismiss only your own"}
 	}
 	if err != nil {
 		return err
 	}
 	if state != "open" {
 		return &Refusal{Rule: "gap_closed", Fix: "this gap is already resolved"}
+	}
+	if foreign && (r.Action == "fill" || r.Action == "merge") {
+		if err := checkForeign(ctx, db, sessionID, strings.TrimSpace(r.TargetID), query.String); err != nil {
+			return err
+		}
 	}
 
 	target, reason := strings.TrimSpace(r.TargetID), strings.TrimSpace(r.Reason)
@@ -73,9 +81,38 @@ func ResolveGap(ctx context.Context, db *sql.DB, sessionID string, r Resolution)
 		return &Refusal{Rule: "action", Fix: "action is fill, merge or dismiss"}
 	}
 
-	_, err = db.ExecContext(ctx, `UPDATE gaps SET state = 'resolved', resolution = ?, target_id = NULLIF(?,''), reason = NULLIF(?,''), resolved_at = ? WHERE id = ?`,
-		r.Action, target, reason, store.Now(), r.GapID)
+	_, err = db.ExecContext(ctx, `UPDATE gaps SET state = 'resolved', resolution = ?, target_id = NULLIF(?,''), reason = NULLIF(?,''), resolved_at = ?, resolved_by = ? WHERE id = ?`,
+		r.Action, target, reason, store.Now(), sessionID, r.GapID)
 	return err
+}
+
+// checkForeign gates a fill or merge of a gap another session opened: the target must exist and cover the gap's query, and the session has a close budget.
+func checkForeign(ctx context.Context, db *sql.DB, sessionID, target, query string) error {
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE id = ?`, target).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 || !view.From(ctx).Sees(target) {
+		return &Refusal{Rule: "unknown_entry", Fix: "fill or merge needs entry_id: the id of an existing entry that answers the query"}
+	}
+	ok, err := search.Covers(ctx, db, query, target)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &Refusal{Rule: "gap_mismatch", Fix: "this gap belongs to another session and the entry does not cover its query: its title, read_when and body must hold at least search_threshold of the query's content terms; pick an entry that answers it, or write one"}
+	}
+	limit, err := search.Setting(ctx, db, "gap_close_cap")
+	if err != nil {
+		return err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gaps WHERE resolved_by = ? AND session_id != ?`, sessionID, sessionID).Scan(&n); err != nil {
+		return err
+	}
+	if float64(n) >= limit {
+		return &Refusal{Rule: "gap_close_cap", Fix: "this session has closed as many of other sessions' gaps as it may; leave the rest for the next session"}
+	}
+	return nil
 }
 
 // mergeAlias adds the gap's query to the entry's read_when aliases so a search for it now hits.
@@ -84,7 +121,7 @@ func mergeAlias(ctx context.Context, db *sql.DB, entryID, query string) error {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE id = ?`, entryID).Scan(&n); err != nil {
 		return err
 	}
-	if n == 0 {
+	if n == 0 || !view.From(ctx).Sees(entryID) {
 		return &Refusal{Rule: "unknown_entry", Fix: "merge needs entry_id: the id of an existing entry that answers the query"}
 	}
 	query = strings.TrimSpace(query)

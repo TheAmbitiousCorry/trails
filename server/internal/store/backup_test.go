@@ -25,7 +25,7 @@ func TestMigration8WritesACopyOfAnExistingDatabaseFirst(t *testing.T) {
 		`DROP INDEX entries_staged`,
 		`ALTER TABLE entries DROP COLUMN staged_branch`, `ALTER TABLE entries DROP COLUMN staged_base_name`, `ALTER TABLE entries DROP COLUMN staged_base`,
 		`ALTER TABLE entries DROP COLUMN staged_landing`, `ALTER TABLE entries DROP COLUMN stages_over`, `ALTER TABLE entries DROP COLUMN stages_over_version`,
-		`DELETE FROM settings WHERE key LIKE 'coverage_%'`, `DELETE FROM schema_version WHERE version >= 8`,
+		`DELETE FROM settings WHERE key LIKE 'coverage_%' OR key = 'gap_close_cap'`, `ALTER TABLE gaps DROP COLUMN resolved_by`, `DELETE FROM schema_version WHERE version >= 8`,
 	} {
 		if _, err := st.DB.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)

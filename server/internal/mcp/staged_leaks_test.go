@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +94,60 @@ func TestCoverageListsAStaleStagedEntryOnlyToCheckoutsThatSeeIt(t *testing.T) {
 	}
 	if listed(agentAt(t, addr, main)) {
 		t.Errorf("base coverage lists a staged entry it cannot see")
+	}
+}
+
+func TestGapCannotBeClosedOntoAStagedEntryTheCallerCannotSee(t *testing.T) {
+	main, addr, _, _ := stagedServerDB(t)
+	wx := worktree(t, main, "feat/x", "main")
+	putFile(t, wx, "src/new.go", "package a\n\nfunc New() {}\n")
+	staged := mustZebra(t, agentAt(t, addr, wx), "src/new.go")["entry_id"].(string)
+	opener, base := agentAt(t, addr, main), agentAt(t, addr, main)
+	gap := openGap(t, opener, "zebra crossing scheduler")
+	base.refused("resolve_gap", map[string]any{"gap_id": gap, "action": "merge", "entry_id": staged}, "unknown_entry")
+}
+
+func TestSessionEndEditGateIgnoresADirAnchorOverTheCeiling(t *testing.T) {
+	main, addr, _, db := stagedServerDB(t)
+	for i := 0; i < 51; i++ {
+		putFile(t, main, fmt.Sprintf("big/f%02d.go", i), "package big\n")
+	}
+	gitIn(t, main, "add", ".")
+	gitIn(t, main, "commit", "-qm", "big")
+	author := agentAt(t, addr, main)
+	res, err := author.raw("write", map[string]any{"parent_sign_id": "root", "kind": "summary", "title": "Big package", "read_when": "you change the big package",
+		"body": "The big package holds generated shims, because the vendor API changes weekly.", "anchors": []map[string]any{{"type": "dir", "path": "big"}}})
+	if err != nil || res.IsError {
+		b, _ := json.Marshal(res)
+		t.Fatalf("write: %v %s", err, b)
+	}
+	editor := agentAt(t, addr, main)
+	if _, err := db.Exec(`INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, 'edit', 'big/f01.go', 'ok')`, editor.sid, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if end, err := editor.raw("session_end", map[string]any{}); err != nil || end.IsError {
+		b, _ := json.Marshal(end.Content)
+		t.Errorf("session_end gated on a dir anchor over the ceiling: %v %s", err, b)
+	}
+}
+
+func TestAStagedAnchorCoversOnlyForCheckoutsThatSeeIt(t *testing.T) {
+	main, addr, _, _ := stagedServerDB(t)
+	wx := worktree(t, main, "feat/x", "main")
+	putFile(t, wx, "src/a.go", "package a\n\n// changed on the branch\n")
+	onX := agentAt(t, addr, wx)
+	if out := mustZebra(t, onX, "src/a.go"); out["staged"] != "feat/x" {
+		t.Fatalf("write = %v, want staged", out)
+	}
+	unmapped := func(a *agent) string {
+		b, _ := json.Marshal(a.ok("coverage", map[string]any{})["unmapped"])
+		return string(b)
+	}
+	if got := unmapped(onX); strings.Contains(got, `"src"`) {
+		t.Errorf("branch coverage lists src as unmapped though its staged entry anchors src/a.go: %s", got)
+	}
+	// With nothing else anchored, base sees the whole tree unmapped, src/a.go included, as one item at the root.
+	if got := unmapped(agentAt(t, addr, main)); !strings.Contains(got, `"path":"."`) || !strings.Contains(got, `"unmapped":2`) {
+		t.Errorf("base coverage treats src/a.go as covered by a staged entry it cannot see: %s", got)
 	}
 }
