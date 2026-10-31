@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ApiError, postJSON, useApi, when, type EntryResponse, projectApi } from '../api'
+import { refusal, type Refusal } from '../refusal'
 import { invalidate } from '../graph'
+import EntryForm from '../components/EntryForm.vue'
 import Load from '../components/Load.vue'
 import Markdown from '../components/Markdown.vue'
+import RefusalNotice from '../components/RefusalNotice.vue'
 import SnippetBlock from '../components/SnippetBlock.vue'
 import TierBadge from '../components/TierBadge.vue'
 import { tip } from '../tips'
@@ -41,6 +44,37 @@ async function supersede(r: { original: string; by: string }) {
     superseding.value = false
   }
 }
+
+// A staged entry lives on a branch the browser has not checked out, and a body that cannot be read cannot be edited as text.
+const canEdit = computed(() => !!data.value && !data.value.staged && !data.value.entry.body_problem)
+const editing = ref(false)
+const confirming = ref(false)
+const confirmFailed = ref<Refusal | null>(null)
+const confirmBox = ref<InstanceType<typeof RefusalNotice> | null>(null)
+watch(() => route.params.id, () => { editing.value = false; confirmFailed.value = null })
+
+async function confirmEntry() {
+  if (confirming.value || !data.value) return
+  confirming.value = true
+  confirmFailed.value = null
+  try {
+    await postJSON(projectApi(`/entries/${encodeURIComponent(data.value.entry.id)}/confirm`), {})
+    await invalidate()
+    reload()
+  } catch (e) {
+    confirmFailed.value = refusal(e, 'This entry no longer exists')
+    await nextTick()
+    confirmBox.value?.focus()
+  } finally {
+    confirming.value = false
+  }
+}
+
+async function saved() {
+  editing.value = false
+  await invalidate()
+  reload()
+}
 </script>
 
 <template>
@@ -64,6 +98,16 @@ async function supersede(r: { original: string; by: string }) {
         <span class="muted small">Held until the work reaches {{ data.staged.base || 'the base branch' }}.</span>
         <span v-if="data.staged.stages_over" class="muted small">Replaces <RouterLink :to="{ name: 'entry', params: { id: data.staged.stages_over } }">{{ data.staged.stages_over }}</RouterLink> when it lands.</span>
       </p>
+      <p v-if="data.staged" class="muted small">Editing is off for a staged entry: the browser has no checkout of {{ data.staged.branch }}. Change it on that branch.</p>
+      <p v-else-if="data.entry.body_problem" class="muted small">Editing is off while the body cannot be read.</p>
+      <template v-if="editing"><EntryForm :data="data" @saved="saved" @cancel="editing = false" /></template>
+      <template v-else>
+      <p class="actions">
+        <button v-if="canEdit" type="button" class="btn" @click="editing = true">Edit</button>
+        <button type="button" class="btn btn-quiet" :disabled="confirming" @click="confirmEntry">Confirm</button>
+        <span class="muted small">Confirm re-checks the anchors and vouches for the entry.</span>
+      </p>
+      <RefusalNotice v-if="confirmFailed" ref="confirmBox" :value="confirmFailed" />
       <p class="lede">{{ data.entry.read_when }}</p>
       <p><RouterLink :to="{ name: 'graph', query: { focus: data.entry.id, depth: '1' } }">Show on graph</RouterLink></p>
       <p v-if="data.entry.tags.length" class="chips"><span v-for="t in data.entry.tags" :key="t" class="chip">{{ t }}</span></p>
@@ -100,6 +144,7 @@ async function supersede(r: { original: string; by: string }) {
           <li v-for="v in data.versions" :key="v.id">{{ when(v.created_at) }} <span class="muted">by</span> <code>{{ v.actor }}</code></li>
         </ul>
       </section>
+      </template>
     </template>
   </Load>
 </template>

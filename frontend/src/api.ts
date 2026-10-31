@@ -93,9 +93,18 @@ export interface LinkRow { relation: string; id: string; title: string; tier: Ti
 
 export interface StagedInfo { branch: string; base: string; landing: string; stages_over: string }
 
+/** An anchor in the write tool's shape, which the edit form shows and sends back. */
+export interface AnchorForm { type: string; path?: string; start?: number; end?: number; url?: string; command?: string; sha?: string }
+
 export interface EntryResponse {
   entry: SignEntry
+  /** The concurrency token a save sends back. */
+  etag: string
   staged: StagedInfo | null
+  staged_copies: { id: string; branch: string }[]
+  form_anchors: AnchorForm[]
+  requires: string[]
+  see_also: string[]
   sign_id: string
   path: Step[]
   created_at: string

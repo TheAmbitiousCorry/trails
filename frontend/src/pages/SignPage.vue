@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError, postJSON, useApi, type SignResponse, projectApi } from '../api'
+import { postJSON, useApi, type SignResponse, projectApi } from '../api'
+import { refusal, type Refusal } from '../refusal'
 import { invalidate } from '../graph'
 import Load from '../components/Load.vue'
+import RefusalNotice from '../components/RefusalNotice.vue'
 import TierBadge from '../components/TierBadge.vue'
 import { tip } from '../tips'
 
@@ -13,7 +15,7 @@ const { data, error, loading } = useApi<SignResponse>(() => projectApi(`/signs/$
 
 const newTitle = ref('')
 const moveIds = ref<string[]>([])
-const createError = ref<{ rule: string; fix: string } | { message: string } | null>(null)
+const createError = ref<Refusal | null>(null)
 const creating = ref(false)
 watch(() => route.params.id, () => { newTitle.value = ''; createError.value = null; moveIds.value = [] })
 
@@ -25,15 +27,6 @@ const tierCounts = computed(() => {
   return out
 })
 
-// The server's refusal body is "rule: fix".
-function refusal(e: unknown) {
-  if (e instanceof ApiError && e.status === 404) return { message: 'This sign no longer exists' }
-  const text = e instanceof Error ? e.message : String(e)
-  const at = text.indexOf(': ')
-  if (e instanceof ApiError && e.status === 400 && at > 0) return { rule: text.slice(0, at), fix: text.slice(at + 2) }
-  return { message: text }
-}
-
 async function createSign() {
   if (creating.value) return
   creating.value = true
@@ -43,7 +36,7 @@ async function createSign() {
     await invalidate()
     await router.push({ name: 'sign', params: { id: out.sign_id } })
   } catch (e) {
-    createError.value = refusal(e)
+    createError.value = refusal(e, 'This sign no longer exists')
   } finally {
     creating.value = false
   }
@@ -104,10 +97,7 @@ async function createSign() {
           <label for="new-sign-title" class="muted small">Title</label>
           <input id="new-sign-title" v-model="newTitle" type="text" maxlength="80" required autocomplete="off" :aria-describedby="createError ? 'new-sign-error' : undefined" :aria-invalid="!!createError" />
           <button type="submit" :disabled="creating">Add sign</button>
-          <div v-if="createError" id="new-sign-error" class="refusal" role="alert">
-            <template v-if="'rule' in createError"><strong>{{ createError.rule }}</strong>: {{ createError.fix }}</template>
-            <template v-else>{{ createError.message }}</template>
-          </div>
+          <RefusalNotice v-if="createError" id="new-sign-error" :value="createError" />
           <fieldset v-if="childSigns.length || directEntries.length" class="move-under">
             <legend class="muted small">Move under it</legend>
             <label v-for="c in childSigns" :key="c.id" class="move-item"><input v-model="moveIds" type="checkbox" :value="c.id" />{{ c.title }} <span class="chip chip-kind">sign</span></label>
