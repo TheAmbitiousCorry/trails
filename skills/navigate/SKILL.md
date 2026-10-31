@@ -7,6 +7,8 @@ description: Use when asked to "update the wiki", "update the map", "update the 
 
 The map is current when its gaps are filled, its stale entries are corrected, and the result is confirmed by other sessions. One pass is bounded and ends with verification; entries written but not verified do not count.
 
+Run the writing pass on the strongest model available. On one measured map, a smaller writer had 60% of its entries verified across two passes and a larger one 100%; the verify workers may run smaller.
+
 ## Pass
 
 1. `session_start(task: "navigate", task_type: "navigate")`. Keep the `session_id`.
