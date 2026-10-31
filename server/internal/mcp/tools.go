@@ -223,6 +223,7 @@ type writeIn struct {
 	DecidedAt      string     `json:"decided_at,omitempty" jsonschema:"required for a decision"`
 	Resolution     string     `json:"resolution,omitempty" jsonschema:"after a duplicate refusal: merge (add read_when as an alias on the hit), replace (supersede the hit) or distinct"`
 	DistinctReason string     `json:"distinct_reason,omitempty" jsonschema:"required with resolution distinct: why this is not the same entry"`
+	Staged         bool       `json:"staged,omitempty" jsonschema:"true holds an entry that has no anchors on this checkout's branch until the branch lands; entries with anchors are staged by what they anchor"`
 }
 
 func (w writeIn) Call() trail.Call {
@@ -376,7 +377,7 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 	}, trail.Record(reg, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn, p *project.Project) (*sdk.CallToolResult, writeOut, error) {
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
 			BodyMarkdown: in.Body, Tags: in.Tags, Requires: in.Requires, SeeAlso: in.SeeAlso, DecidedBy: in.DecidedBy, DecidedAt: in.DecidedAt, EntryID: in.EntryID,
-			Resolution: in.Resolution, DistinctReason: in.DistinctReason}
+			Resolution: in.Resolution, DistinctReason: in.DistinctReason, Staged: in.Staged}
 		if in.Anchors != nil {
 			req.Anchors = []anchor.Anchor{}
 		}

@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -38,6 +39,13 @@ func putFile(t *testing.T, dir, rel, text string) {
 // stagedServer serves a repo whose base branch is main and which holds src/a.go, with .trail/id committed so worktrees carry it.
 func stagedServer(t *testing.T) (main, addr, projectID string) {
 	t.Helper()
+	main, addr, projectID, _ = stagedServerDB(t)
+	return main, addr, projectID
+}
+
+// stagedServerDB is stagedServer with the project's database, for tests that set a tier or read rows directly.
+func stagedServerDB(t *testing.T) (main, addr, projectID string, db *sql.DB) {
+	t.Helper()
 	main = t.TempDir()
 	putFile(t, main, "src/a.go", "package a\n")
 	putFile(t, main, ".trail/id", "stg1\n")
@@ -45,7 +53,7 @@ func stagedServer(t *testing.T) (main, addr, projectID string) {
 	gitIn(t, main, "add", ".")
 	gitIn(t, main, "commit", "-qm", "init")
 	reg, addr := serveRepos(t, main)
-	return main, addr, reg.List()[0].ID
+	return main, addr, reg.List()[0].ID, reg.List()[0].DB()
 }
 
 func worktree(t *testing.T, main, branch, start string) string {

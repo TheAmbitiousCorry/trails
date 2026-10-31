@@ -230,7 +230,10 @@ func (r *Registry) startSweep(p *Project) {
 			if err != nil {
 				log.Printf("trails: %s: sweep: %v", p.ID, err)
 			} else {
-				log.Printf("trails: %s: sweep checked %d, dormant %d, deleted %d, promoted %d, sessions closed %d", p.ID, rep.Checked, rep.Dormant, rep.Deleted, rep.Promoted, rep.Closed)
+				log.Printf("trails: %s: sweep checked %d, dormant %d, deleted %d, promoted %d, abandoned %d, sessions closed %d", p.ID, rep.Checked, rep.Dormant, rep.Deleted, rep.Promoted, rep.Abandoned, rep.Closed)
+				if rep.BaseUnresolved {
+					log.Printf("trails: %s: sweep: base_unresolved, staged entries left as they are", p.ID)
+				}
 			}
 			select {
 			case <-r.ctx.Done():

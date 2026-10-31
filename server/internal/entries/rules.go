@@ -27,7 +27,7 @@ import (
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "procedure": 400, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
-var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable", "detached_checkout"}
+var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable", "detached_checkout", "staged_elsewhere"}
 
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
@@ -73,7 +73,7 @@ func schema(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		if err := w.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE id = ?`, id).Scan(&n); err != nil {
 			return nil, err
 		}
-		if n == 0 {
+		if n == 0 || !view.From(ctx).Sees(id) {
 			return refusal("unknown_entry", "linked entry %q does not exist; entry ids come from a sign or a read", id), nil
 		}
 	}
@@ -152,19 +152,24 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 
 // sourceChecker picks what the anchors resolve against. A normal entry resolves against the primary, as the checks that follow it do.
 // A write about branch work is staged and resolves against the session's checkout, where the work is; an update to an entry staged on the viewer's own branch does the same and stays staged.
+// An update to a normal entry is judged on the union of the request's and the original's anchors, and is stored as a staged copy when that union is changed on the branch.
 func (w *writer) sourceChecker(ctx context.Context, as []anchor.Anchor) (anchor.Checker, *trail.Refusal) {
 	v := view.From(ctx)
 	if v.Checkout == "" {
 		return w.checker, nil
 	}
 	here := anchor.Checker{Repo: v.Checkout, Fetcher: w.checker.Fetcher}
+	var original []anchor.Anchor
 	if w.prev != nil {
-		if w.prev.stagedBranch != "" && w.prev.stagedBranch == v.Branch {
+		if w.prev.stagedBranch != "" {
 			return here, nil
 		}
-		return w.checker, nil
+		var err error
+		if original, err = anchor.Load(ctx, w.db, w.prev.id); err != nil {
+			return w.checker, refusal("anchor", "the staged check failed: %v", err)
+		}
 	}
-	d, err := staged.Decide(ctx, v.Checkout, as)
+	d, err := staged.DecideFor(ctx, v.Checkout, as, original, w.req.Staged)
 	switch {
 	case errors.Is(err, staged.ErrDetached):
 		return w.checker, refusal("detached_checkout", "this entry describes work on a branch and HEAD is detached, so no branch can hold it; check out a branch, then write again")
@@ -382,8 +387,7 @@ func fanOut(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	if w.prev != nil && w.prev.tier != "verified" {
 		return nil, nil
 	}
-	var n int
-	err := w.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entries WHERE sign_id = ? AND kind = ?`, w.req.ParentSignID, w.req.Kind).Scan(&n)
+	n, err := visibleOfKind(ctx, w.db, w.req.ParentSignID, w.req.Kind)
 	if err != nil {
 		return nil, err
 	}
@@ -401,6 +405,27 @@ func fanOut(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		return ref, nil
 	}
 	return nil, err
+}
+
+// visibleOfKind counts the entries of one kind under a sign that the writer's Viewer is shown, so a staged entry on another branch does not make a kind look present.
+func visibleOfKind(ctx context.Context, db *sql.DB, signID, kind string) (int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id FROM entries WHERE sign_id = ? AND kind = ?`, signID, kind)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	viewer := view.From(ctx)
+	n := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		if viewer.Sees(id) {
+			n++
+		}
+	}
+	return n, rows.Err()
 }
 
 // reachability is rule 7: exactly one parent, and the walk up from it ends at the root.

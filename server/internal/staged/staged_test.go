@@ -211,3 +211,74 @@ func TestLocalBaseBehindItsRemoteUsesTheNearestMergeBase(t *testing.T) {
 		t.Error("a file already on the remote base staged")
 	}
 }
+
+func TestDecideUpdateJudgesTheUnionButRefusesOnlyTheRequestsDirectories(t *testing.T) {
+	dir := repo(t, "main")
+	put(t, dir, "b.txt", "b\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "b")
+	git(t, dir, "checkout", "-q", "-b", "feat/x")
+	put(t, dir, "a.txt", "a\nchanged\n")
+
+	// The request anchors the unchanged b.txt; the original anchored a.txt, which the branch changed, and a directory.
+	orig := []anchor.Anchor{file("a.txt"), {Type: "dir", PathOrURL: "."}}
+	if d, err := staged.Decide(ctx, dir, []anchor.Anchor{file("b.txt")}); err != nil || d.Staged {
+		t.Fatalf("Decide on the request alone = %+v, %v, want normal", d, err)
+	}
+	d, err := staged.DecideUpdate(ctx, dir, []anchor.Anchor{file("b.txt")}, orig)
+	if err != nil || !d.Staged || d.Branch != "feat/x" {
+		t.Fatalf("DecideUpdate = %+v, %v, want staged on feat/x", d, err)
+	}
+	if _, err := staged.DecideUpdate(ctx, dir, []anchor.Anchor{file("b.txt"), {Type: "dir", PathOrURL: "."}}, orig); !errors.Is(err, staged.ErrDirAnchor) {
+		t.Errorf("a directory in the request: err = %v, want ErrDirAnchor", err)
+	}
+}
+
+func TestRenameOnTheBranchChangesTheOldPath(t *testing.T) {
+	dir := repo(t, "main")
+	put(t, dir, "c.txt", "c\n")
+	put(t, dir, "old.txt", "a long enough body that git sees the rename\nsecond line\nthird line\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "base files")
+	git(t, dir, "checkout", "-q", "-b", "feat")
+	git(t, dir, "mv", "old.txt", "new.txt")
+	git(t, dir, "commit", "-qm", "rename")
+
+	// Only the original's path is gone from the branch; with rename detection git would list just new.txt and miss it.
+	d, err := staged.DecideUpdate(ctx, dir, []anchor.Anchor{file("c.txt")}, []anchor.Anchor{file("old.txt")})
+	if err != nil || !d.Staged {
+		t.Fatalf("decision = %+v, %v, want staged by the renamed-away path", d, err)
+	}
+}
+
+func TestStagedFlagStagesAnAnchorlessWriteOnly(t *testing.T) {
+	dir := repo(t, "main")
+	if d, _ := staged.DecideFor(ctx, dir, nil, nil, true); d.Staged {
+		t.Error("the flag staged a write on the base branch")
+	}
+	git(t, dir, "checkout", "-q", "-b", "feat")
+	if d, _ := staged.DecideFor(ctx, dir, nil, nil, false); d.Staged {
+		t.Error("an anchorless write was staged without the flag")
+	}
+	d, err := staged.DecideFor(ctx, dir, nil, nil, true)
+	if err != nil || !d.Staged || d.Branch != "feat" || d.Landing != "" {
+		t.Fatalf("decision = %+v, %v, want staged on feat with no landing yet", d, err)
+	}
+	if d, _ := staged.DecideFor(ctx, dir, []anchor.Anchor{file("a.txt")}, nil, true); d.Staged {
+		t.Error("the flag staged a write whose anchors changed nothing; it is for anchorless writes")
+	}
+	put(t, dir, "n.txt", "n\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "first on feat")
+	first := git(t, dir, "rev-parse", "HEAD")
+	put(t, dir, "m.txt", "m\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "second")
+	if d, _ := staged.DecideFor(ctx, dir, nil, nil, true); d.Landing != first {
+		t.Errorf("landing = %q, want the first commit on the branch %s", d.Landing, first)
+	}
+	git(t, dir, "checkout", "-q", "--detach")
+	if _, err := staged.DecideFor(ctx, dir, nil, nil, true); !errors.Is(err, staged.ErrDetached) {
+		t.Errorf("detached: err = %v, want ErrDetached", err)
+	}
+}

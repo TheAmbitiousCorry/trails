@@ -15,6 +15,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/staged"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 // BodySchema is the content schema version stored with every body.
@@ -43,6 +44,8 @@ type WriteRequest struct {
 	// Resolution answers a duplicate refusal: merge, replace or distinct. DistinctReason is required with distinct.
 	Resolution     string
 	DistinctReason string
+	// Staged asks for an entry with no anchors to be held on the checkout's branch.
+	Staged bool
 }
 
 // ConflictOffer names the verified entry an agent tried to overwrite and the provisional entry the server stored instead.
@@ -80,6 +83,9 @@ type writer struct {
 	// staged is the anchor rule's verdict; srcRepo is the checkout the anchors resolved against, which the paraphrase rule reads the same files from.
 	staged  staged.Decision
 	srcRepo string
+	// over and overVersion are set when this update is stored as a staged copy of entry over, whose version count was overVersion.
+	over        string
+	overVersion int
 
 	// Set by the duplicate rule from the request's resolution.
 	merge, supersede *search.Hit
@@ -125,6 +131,10 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 			return WriteResult{Refusal: ref}, err
 		}
 		w.prev = prev
+		// A session that is not on the entry's branch has no staged copy to edit; the browser has no checkout and is not refused.
+		if v := view.From(ctx); v.Checkout != "" && prev.stagedBranch != "" && prev.stagedBranch != v.Branch {
+			return WriteResult{Refusal: refusal("staged_elsewhere", "%s is staged on branch %s and is edited from a checkout on that branch; it reaches the base branch when that work lands", prev.id, prev.stagedBranch)}, nil
+		}
 		if err := w.fillOmitted(ctx, req); err != nil {
 			return WriteResult{}, err
 		}
@@ -163,6 +173,16 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 
 	var res WriteResult
 	switch {
+	case w.prev != nil && w.staged.Staged && w.prev.stagedBranch == "":
+		w.over = w.prev.id
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM versions WHERE entry_id = ?`, w.over).Scan(&w.overVersion); err != nil {
+			return WriteResult{}, err
+		}
+		id, err := w.create(ctx, tx, tier)
+		if err != nil {
+			return WriteResult{}, err
+		}
+		res = WriteResult{EntryID: id, Tier: tier, Staged: w.staged.Branch}
 	case w.prev == nil:
 		id, err := w.create(ctx, tx, tier)
 		if err != nil {
@@ -375,11 +395,11 @@ func (w *writer) create(ctx context.Context, tx *sql.Tx, tier string) (string, e
 	tags, _ := json.Marshal(append([]string{}, w.req.Tags...))
 	now := store.Now()
 	_, err = tx.ExecContext(ctx, `INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, decided_by, decided_at, distinct_reason, created_at, updated_at,
-			staged_branch, staged_base_name, staged_base, staged_landing)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), NULLIF(?,''))`,
+			staged_branch, staged_base_name, staged_base, staged_landing, stages_over, stages_over_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), NULLIF(?,0))`,
 		id, w.req.ParentSignID, w.req.Kind, w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier,
 		w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, now, now,
-		w.staged.Branch, w.staged.BaseName, w.staged.Base, w.staged.Landing)
+		w.staged.Branch, w.staged.BaseName, w.staged.Base, w.staged.Landing, w.over, w.overVersion)
 	if err != nil {
 		return "", err
 	}

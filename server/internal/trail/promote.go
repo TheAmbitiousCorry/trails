@@ -3,6 +3,7 @@ package trail
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/gitx"
@@ -10,60 +11,108 @@ import (
 )
 
 type heldEntry struct {
-	id, branch, baseName, base, landing string
+	id, branch, baseName, base, landing, over string
+	// overVersion is the original's version count when the copy was staged.
+	overVersion sql.NullInt64
 }
 
-// promoteStaged pins the landing commit of each staged entry whose work is now committed, then promotes the entries whose landing commit is on the base branch.
-// top is the primary checkout; refs are shared by every worktree of the repository, so it sees every branch.
-// A promoted entry is an ordinary entry from here on: the sweep's anchor pass that follows checks it against the primary like any other.
-func promoteStaged(ctx context.Context, db *sql.DB, top, stamp string) (int, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, staged_branch, COALESCE(staged_base_name, ''), COALESCE(staged_base, ''), COALESCE(staged_landing, '')
+// stagedPass is what one pass over the staged entries did.
+type stagedPass struct {
+	promoted, abandoned int
+	// baseUnresolved is set when an entry's base branch has no ref at all; that entry is left exactly as it was.
+	baseUnresolved bool
+}
+
+// promoteStaged pins the landing commit of each staged entry whose work is now committed, promotes the entries whose work reached the base branch, and abandons the ones whose branch is gone.
+// Work reached the base branch when the landing commit is an ancestor of a base ref (merged), or when every file and range anchor exists on one base ref with its stored hash (landed by content: a squash, rebase or cherry-pick).
+// checker.Repo is the primary checkout; refs are shared by every worktree of the repository, so it sees every branch. The pass never fetches.
+// A promoted entry is an ordinary entry from here on: the sweep's anchor pass that follows checks it against the primary like any other, so a revert or later work makes it stale.
+func promoteStaged(ctx context.Context, db *sql.DB, checker anchor.Checker, stamp string) (stagedPass, error) {
+	var pass stagedPass
+	top := checker.Repo
+	rows, err := db.QueryContext(ctx, `SELECT id, staged_branch, COALESCE(staged_base_name, ''), COALESCE(staged_base, ''), COALESCE(staged_landing, ''), COALESCE(stages_over, ''), stages_over_version
 		FROM entries WHERE staged_branch IS NOT NULL AND tier != 'dormant' ORDER BY created_at, id`)
 	if err != nil {
-		return 0, err
+		return pass, err
 	}
 	var held []heldEntry
 	for rows.Next() {
 		var h heldEntry
-		if err := rows.Scan(&h.id, &h.branch, &h.baseName, &h.base, &h.landing); err != nil {
+		if err := rows.Scan(&h.id, &h.branch, &h.baseName, &h.base, &h.landing, &h.over, &h.overVersion); err != nil {
 			rows.Close()
-			return 0, err
+			return pass, err
 		}
 		held = append(held, h)
 	}
 	if err := rows.Close(); err != nil {
-		return 0, err
+		return pass, err
 	}
-	promoted := 0
 	for _, h := range held {
-		if h.landing == "" {
-			if h.landing, err = pinLanding(ctx, db, top, h); err != nil {
-				return promoted, err
-			}
-		}
-		if !staged.Merged(ctx, top, h.landing, h.baseName) {
+		refs := staged.BaseRefs(ctx, top, h.baseName)
+		if len(refs) == 0 {
+			pass.baseUnresolved = true
 			continue
 		}
-		if _, err := db.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL WHERE id = ?`, h.id); err != nil {
-			return promoted, err
+		if h.landing == "" {
+			if h.landing, err = pinLanding(ctx, db, top, h); err != nil {
+				return pass, err
+			}
 		}
-		if err := sweepEvent(ctx, db, stamp, h.id, "promoted"); err != nil {
-			return promoted, err
+		as, err := anchor.Load(ctx, db, h.id)
+		if err != nil {
+			return pass, err
 		}
-		promoted++
+		if h.landing != "" && staged.AncestorOfBase(ctx, top, h.landing, refs) || staged.LandedByContent(ctx, checker, refs, h.base, as) {
+			if err := promote(ctx, db, h, stamp); err != nil {
+				return pass, err
+			}
+			pass.promoted++
+			continue
+		}
+		if _, alive := gitx.BranchRef(ctx, top, h.branch); alive {
+			continue
+		}
+		if err := abandon(ctx, db, h.id, stamp); err != nil {
+			return pass, err
+		}
+		pass.abandoned++
 	}
-	return promoted, nil
+	return pass, nil
 }
 
-// pinLanding stores the first commit on the branch that touches the entry's anchored paths. Once stored it is never moved.
+// abandon retires an entry whose branch is gone without its work reaching the base branch. It stays held by the branch name, readable by id and promotable by hand.
+func abandon(ctx context.Context, db *sql.DB, id, stamp string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET tier = 'dormant' WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if err := sweepEvent(ctx, tx, stamp, id, "abandoned"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// pinLanding stores the first commit on the branch that touches the entry's anchored paths, or for a copy the paths of the original it stages over as well.
+// Once stored it is never moved.
 func pinLanding(ctx context.Context, db *sql.DB, top string, h heldEntry) (string, error) {
-	tip := "refs/heads/" + h.branch
-	if _, ok := gitx.Verify(ctx, top, tip+"^{commit}"); !ok || h.base == "" {
+	tip, ok := gitx.BranchRef(ctx, top, h.branch)
+	if !ok || h.base == "" {
 		return "", nil
 	}
 	as, err := anchor.Load(ctx, db, h.id)
 	if err != nil {
 		return "", err
+	}
+	if h.over != "" {
+		original, err := anchor.Load(ctx, db, h.over)
+		if err != nil {
+			return "", err
+		}
+		as = append(as, original...)
 	}
 	landing := staged.Landing(ctx, top, h.base, tip, as)
 	if landing == "" {
@@ -71,4 +120,53 @@ func pinLanding(ctx context.Context, db *sql.DB, top string, h heldEntry) (strin
 	}
 	_, err = db.ExecContext(ctx, `UPDATE entries SET staged_landing = ? WHERE id = ? AND staged_landing IS NULL`, landing, h.id)
 	return landing, err
+}
+
+// promote makes one staged entry normal and settles the original it stages over, in one transaction.
+func promote(ctx context.Context, db *sql.DB, h heldEntry, stamp string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL WHERE id = ?`, h.id); err != nil {
+		return err
+	}
+	if h.over != "" {
+		if err := settleOriginal(ctx, tx, h); err != nil {
+			return err
+		}
+	}
+	if err := sweepEvent(ctx, tx, stamp, h.id, "promoted"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// settleOriginal never overrides a human. The promoted copy replaces its original (as an agent write with resolution replace does) only when the original is not verified and has not been written since the copy was staged;
+// otherwise the copy stays a provisional entry linked conflicts_with and the human resolves the pair on the entry page. An original that is gone or already retired leaves the copy as a plain entry.
+func settleOriginal(ctx context.Context, tx *sql.Tx, h heldEntry) error {
+	var tier string
+	var versions int
+	var retired sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(tier_before_stale, tier), superseded_by, (SELECT COUNT(*) FROM versions WHERE entry_id = entries.id) FROM entries WHERE id = ?`, h.over).Scan(&tier, &retired, &versions)
+	if errors.Is(err, sql.ErrNoRows) || retired.Valid {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if tier != "verified" && h.overVersion.Valid && int64(versions) == h.overVersion.Int64 {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links (from_id, to_id, relation) VALUES (?, ?, 'supersedes')`, h.id, h.over); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant' WHERE id = ?`, h.id, h.over)
+		return err
+	}
+	lo, hi := h.id, h.over
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO links (from_id, to_id, relation) VALUES (?, ?, 'conflicts_with')`, lo, hi)
+	return err
 }

@@ -61,14 +61,11 @@ func Tier(ctx context.Context, db *sql.DB, entryID string) (string, error) {
 // RefreshEntry re-checks every anchor of the entry and returns the ones that failed.
 // A failure parks the current tier in tier_before_stale; all passing again restores it.
 //
-// An entry staged on a branch is not re-checked: its anchors name work that exists only in that branch's checkout, which a Checker for the primary cannot see.
+// An entry staged on a branch is checked where its work is: against a bound checkout on that branch, else the branch ref's objects. Once the branch is gone it is left as it was.
 func RefreshEntry(ctx context.Context, db *sql.DB, c Checker, entryID string) ([]Anchor, error) {
-	var held bool
-	if err := db.QueryRowContext(ctx, `SELECT staged_branch IS NOT NULL FROM entries WHERE id = ?`, entryID).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	c, ok, err := stagedSource(ctx, db, c, entryID)
+	if err != nil || !ok {
 		return nil, err
-	}
-	if held {
-		return nil, nil
 	}
 	as, err := Load(ctx, db, entryID)
 	if err != nil || len(as) == 0 {
@@ -103,6 +100,11 @@ func RefreshEntry(ctx context.Context, db *sql.DB, c Checker, entryID string) ([
 // Reattach resolves every anchor of the entry against the repository and the web, stores the resolved hashes in place of the stored ones, and sets the tier as RefreshEntry does.
 // An anchor that does not resolve keeps its stored hash, is marked failed and is returned, so the entry stays stale.
 func Reattach(ctx context.Context, db *sql.DB, c Checker, entryID string) ([]Anchor, error) {
+	if src, ok, err := stagedSource(ctx, db, c, entryID); err != nil {
+		return nil, err
+	} else if ok {
+		c = src
+	}
 	as, err := Load(ctx, db, entryID)
 	if err != nil || len(as) == 0 {
 		return nil, err
@@ -133,6 +135,20 @@ func Reattach(ctx context.Context, db *sql.DB, c Checker, entryID string) ([]Anc
 		return nil, err
 	}
 	return failed, tx.Commit()
+}
+
+// stagedSource is the checker to use for the entry: c itself for a normal entry, the branch's checker for a staged one.
+// ok is false when the entry is staged on a branch that no longer exists, which has nothing to check against.
+func stagedSource(ctx context.Context, db *sql.DB, c Checker, entryID string) (Checker, bool, error) {
+	var branch sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT staged_branch FROM entries WHERE id = ?`, entryID).Scan(&branch); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return c, false, err
+	}
+	if !branch.Valid {
+		return c, true, nil
+	}
+	src, ok := c.ForBranch(ctx, branch.String)
+	return src, ok, nil
 }
 
 // storeChecks writes each anchor's hash, fetch time, check time and result.

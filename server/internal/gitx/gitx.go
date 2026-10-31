@@ -67,3 +67,26 @@ func Lines(s string) []string {
 	}
 	return out
 }
+
+// BranchRef is the ref holding the branch: refs/heads/<branch> when it exists, else the first refs/remotes/<remote>/<branch>.
+// A branch with neither is gone.
+func BranchRef(ctx context.Context, top, branch string) (string, bool) {
+	if branch == "" {
+		return "", false
+	}
+	if _, ok := Verify(ctx, top, "refs/heads/"+branch+"^{commit}"); ok {
+		return "refs/heads/" + branch, true
+	}
+	out, ok, _ := Out(ctx, top, "for-each-ref", "--format=%(refname)", "refs/remotes/")
+	if !ok {
+		return "", false
+	}
+	for _, r := range Lines(out) {
+		if _, rest, found := strings.Cut(strings.TrimPrefix(r, "refs/remotes/"), "/"); found && rest == branch && !strings.HasSuffix(r, "/HEAD") {
+			if _, ok := Verify(ctx, top, r+"^{commit}"); ok {
+				return r, true
+			}
+		}
+	}
+	return "", false
+}

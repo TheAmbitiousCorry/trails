@@ -3,6 +3,7 @@ package entries
 import (
 	"context"
 	"database/sql"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 // Edge is one line for a linked entry: enough to decide whether to read it.
@@ -75,12 +76,15 @@ func edges(ctx context.Context, db *sql.DB, query, id string) ([]Edge, error) {
 	}
 	defer rows.Close()
 	var out []Edge
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var e Edge
 		if err := rows.Scan(&e.ID, &e.Title, &e.ReadWhen, &e.Tier, &e.Relation); err != nil {
 			return nil, err
 		}
-		out = append(out, e)
+		if viewer.Sees(e.ID) {
+			out = append(out, e)
+		}
 	}
 	return out, rows.Err()
 }

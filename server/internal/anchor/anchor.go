@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/TheAmbitiousCorry/trails/internal/gitx"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
@@ -50,9 +51,38 @@ func (a Anchor) Label() string {
 }
 
 // Checker re-checks anchors against the repository at Repo and the web through Fetcher.
+// Paths lists every checkout bound to the project, which ForBranch searches for the one on a staged entry's branch.
+// A non-empty Ref reads file and range anchors from that ref's objects (git cat-file blob <ref>:<path>) instead of the working tree.
 type Checker struct {
 	Repo    string
 	Fetcher Fetcher
+	Paths   []string
+	Ref     string
+}
+
+// OnRef is the checker that reads file and range anchors from the objects of ref.
+func (c Checker) OnRef(ref string) Checker {
+	c.Ref = ref
+	return c
+}
+
+// ForBranch returns the checker for an entry staged on branch: a bound checkout whose current branch it is, so the working tree is checked,
+// else the branch ref's objects, so the entry does not go stale when its worktree is removed. false means the branch is gone.
+func (c Checker) ForBranch(ctx context.Context, branch string) (Checker, bool) {
+	for _, dir := range append([]string{c.Repo}, c.Paths...) {
+		if dir == "" {
+			continue
+		}
+		if b, ok, _ := gitx.Out(ctx, dir, "symbolic-ref", "--short", "HEAD"); ok && b == branch {
+			c.Repo, c.Ref = dir, ""
+			return c, true
+		}
+	}
+	ref, ok := gitx.BranchRef(ctx, c.Repo, branch)
+	if !ok {
+		return c, false
+	}
+	return c.OnRef(ref), true
 }
 
 var shaRe = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
@@ -134,8 +164,20 @@ func gitMiss(err error) (bool, error) {
 }
 
 func (c Checker) head(ctx context.Context) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", "-C", c.Repo, "rev-parse", "HEAD").Output()
+	rev := "HEAD"
+	if c.Ref != "" {
+		rev = c.Ref
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", c.Repo, "rev-parse", rev).Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// read is a file's bytes from the working tree, or from the blob at Ref.
+func (c Checker) read(ctx context.Context, rel string) ([]byte, error) {
+	if c.Ref == "" {
+		return os.ReadFile(filepath.Join(c.Repo, rel))
+	}
+	return exec.CommandContext(ctx, "git", "-C", c.Repo, "cat-file", "blob", c.Ref+":"+filepath.ToSlash(filepath.Clean(rel))).Output()
 }
 
 // hash is the current content hash of a file, range, dir or url anchor.
@@ -154,15 +196,18 @@ func (c Checker) hash(ctx context.Context, a Anchor) (string, error) {
 		return "", fmt.Errorf("path %q is not inside the repository", a.PathOrURL)
 	}
 	full := filepath.Join(c.Repo, a.PathOrURL)
+	if c.Ref != "" && a.Type == "dir" {
+		return "", errors.New("a directory anchor cannot be read from git objects")
+	}
 	switch a.Type {
 	case "file":
-		b, err := os.ReadFile(full)
+		b, err := c.read(ctx, a.PathOrURL)
 		if err != nil {
 			return "", err
 		}
 		return sum(b), nil
 	case "range":
-		b, err := os.ReadFile(full)
+		b, err := c.read(ctx, a.PathOrURL)
 		if err != nil {
 			return "", err
 		}

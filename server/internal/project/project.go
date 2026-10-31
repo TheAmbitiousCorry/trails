@@ -57,7 +57,7 @@ func (p *Project) setPaths(paths []string) {
 
 // Checker is an anchor checker for the project's current repo.
 func (p *Project) Checker() anchor.Checker {
-	return anchor.Checker{Repo: p.Repo(), Fetcher: p.fetch}
+	return anchor.Checker{Repo: p.Repo(), Fetcher: p.fetch, Paths: p.Paths()}
 }
 
 // Title is the root sign's title.

@@ -306,6 +306,10 @@ input_schema: {
       "description": "the id session_start returned",
       "type": "string"
     },
+    "staged": {
+      "description": "true holds an entry that has no anchors on this checkout's branch until the branch lands; entries with anchors are staged by what they anchor",
+      "type": "boolean"
+    },
     "tags": {
       "description": "kept when omitted on an update; an empty list clears them",
       "items": {
@@ -392,6 +396,7 @@ refusal rules
 - self
 - split this
 - split this fork
+- staged_elsewhere
 - stale
 - task_empty
 - unconfirmed_edits

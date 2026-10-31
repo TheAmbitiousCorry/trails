@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
+	"github.com/TheAmbitiousCorry/trails/internal/gitx"
 )
 
 const (
@@ -18,18 +19,21 @@ const (
 
 // SweepReport counts what one pass changed.
 type SweepReport struct {
-	Checked, Dormant, Deleted, Closed, Promoted int
+	Checked, Dormant, Deleted, Closed, Promoted, Abandoned int
+	// BaseUnresolved is set when a staged entry's base branch has no ref at all: those entries were left untouched.
+	BaseUnresolved bool
 }
 
-// Sweep promotes staged entries whose work reached the base branch, re-checks every live entry's anchors, expires provisional entries nobody reads, and closes idle sessions.
-// A provisional entry unread for 30 days goes dormant; a dormant one untouched for 30 more is deleted and its id recorded in ids.
+// Sweep promotes staged entries whose work reached the base branch, abandons those whose branch is gone, re-checks every live entry's anchors, expires provisional entries nobody reads, and closes idle sessions.
+// A provisional entry unread for 30 days goes dormant, unless it is staged on a branch that still exists; a dormant one untouched for 30 more is deleted and its id recorded in ids.
 // Both moves are logged as 'sweep' events, and that event's time is what dates the dormancy. now is injected so tests control the clock.
 func Sweep(ctx context.Context, db *sql.DB, checker anchor.Checker, now func() time.Time) (SweepReport, error) {
 	var rep SweepReport
 	at := now().UTC()
 
-	var err error
-	if rep.Promoted, err = promoteStaged(ctx, db, checker.Repo, at.Format(time.RFC3339Nano)); err != nil {
+	pass, err := promoteStaged(ctx, db, checker, at.Format(time.RFC3339Nano))
+	rep.Promoted, rep.Abandoned, rep.BaseUnresolved = pass.promoted, pass.abandoned, pass.baseUnresolved
+	if err != nil {
 		return rep, err
 	}
 	ids, err := queryStrings(ctx, db, `SELECT id FROM entries WHERE tier != 'dormant'`)
@@ -49,24 +53,25 @@ func Sweep(ctx context.Context, db *sql.DB, checker anchor.Checker, now func() t
 	// last_touch is the newest of the entry's last read, its dormancy event and its creation.
 	rows, err := db.QueryContext(ctx, `SELECT e.id, e.tier, e.created_at,
 			COALESCE((SELECT MAX(at) FROM events WHERE tool = 'read' AND target = e.id AND result = 'ok'), ''),
-			COALESCE((SELECT MAX(at) FROM events WHERE tool = 'sweep' AND target = e.id AND result = 'dormant'), '')
+			COALESCE((SELECT MAX(at) FROM events WHERE tool = 'sweep' AND target = e.id AND result IN ('dormant', 'abandoned')), ''),
+			COALESCE(e.staged_branch, '')
 		FROM entries e
 		WHERE e.superseded_by IS NULL AND (e.tier = 'provisional' OR e.tier = 'dormant')`)
 	if err != nil {
 		return rep, err
 	}
 	type cand struct {
-		id, tier string
-		touch    time.Time
+		id, tier, branch string
+		touch            time.Time
 	}
 	var cands []cand
 	for rows.Next() {
-		var id, tier, created, read, dormant string
-		if err := rows.Scan(&id, &tier, &created, &read, &dormant); err != nil {
+		var id, tier, created, read, dormant, branch string
+		if err := rows.Scan(&id, &tier, &created, &read, &dormant, &branch); err != nil {
 			rows.Close()
 			return rep, err
 		}
-		c := cand{id: id, tier: tier}
+		c := cand{id: id, tier: tier, branch: branch}
 		for _, s := range []string{created, read, dormant} {
 			if t, err := time.Parse(time.RFC3339Nano, s); err == nil && t.After(c.touch) {
 				c.touch = t
@@ -81,6 +86,11 @@ func Sweep(ctx context.Context, db *sql.DB, checker anchor.Checker, now func() t
 	for _, c := range cands {
 		if at.Sub(c.touch) < expiryAfter {
 			continue
+		}
+		if c.branch != "" && c.tier == "provisional" {
+			if _, alive := gitx.BranchRef(ctx, checker.Repo, c.branch); alive {
+				continue
+			}
 		}
 		if c.tier == "provisional" {
 			if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'dormant' WHERE id = ?`, c.id); err != nil {
@@ -133,7 +143,9 @@ func deleteEntry(ctx context.Context, db *sql.DB, stamp, id string) error {
 	return tx.Commit()
 }
 
-func sweepEvent(ctx context.Context, db *sql.DB, stamp, id, result string) error {
+func sweepEvent(ctx context.Context, db interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, stamp, id, result string) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, ?, ?, ?)`, sweepActor, stamp, sweepTool, id, result)
 	return err
 }
