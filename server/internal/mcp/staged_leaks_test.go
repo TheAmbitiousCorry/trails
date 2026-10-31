@@ -74,3 +74,24 @@ func TestReadAndSearchNameTheBranchOfAStagedEntry(t *testing.T) {
 		t.Errorf("normal entry read carries staged = %v", got)
 	}
 }
+
+func TestCoverageListsAStaleStagedEntryOnlyToCheckoutsThatSeeIt(t *testing.T) {
+	main, addr, _, db := stagedServerDB(t)
+	wx := worktree(t, main, "feat/x", "main")
+	putFile(t, wx, "src/new.go", "package a\n\nfunc New() {}\n")
+	onX := agentAt(t, addr, wx)
+	id := mustZebra(t, onX, "src/new.go")["entry_id"].(string)
+	if _, err := db.Exec(`UPDATE anchors SET ok = 0 WHERE entry_id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	listed := func(a *agent) bool {
+		b, _ := json.Marshal(a.ok("coverage", map[string]any{})["stale"])
+		return strings.Contains(string(b), id)
+	}
+	if !listed(onX) {
+		t.Errorf("branch coverage does not list its stale staged entry")
+	}
+	if listed(agentAt(t, addr, main)) {
+		t.Errorf("base coverage lists a staged entry it cannot see")
+	}
+}

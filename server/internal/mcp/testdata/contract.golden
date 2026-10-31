@@ -1,4 +1,4 @@
-contract 4
+contract 5
 
 tool confirm
 description: Vouch for a provisional entry after you read it at depth full and checked it against its anchors. Two distinct sessions confirming verify it; a human confirming verifies it alone. You cannot confirm an entry you wrote. Returns the entry's tier and how many sessions have confirmed it.
@@ -16,6 +16,30 @@ input_schema: {
   "required": [
     "session_id",
     "entry_id"
+  ],
+  "type": "object"
+}
+
+tool coverage
+description: Read-only work list for keeping the map current. Returns gaps (every session's open gaps, oldest first), stale (entries whose anchors failed, with the failed anchors) and off_trail (paths sessions read natively recently that no entry anchors, most-read first, count is sessions). Each item carries sign, the sign to write under as parent_sign_id. limit caps each list (default 10, max 25); within is a sign id that keeps items under it.
+input_schema: {
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "description": "items per list; default 10, max 25",
+      "type": "integer"
+    },
+    "session_id": {
+      "description": "the id session_start returned",
+      "type": "string"
+    },
+    "within": {
+      "description": "a sign id: keep only items whose sign lies under it",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
   ],
   "type": "object"
 }

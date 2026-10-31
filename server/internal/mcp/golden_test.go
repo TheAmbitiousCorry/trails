@@ -27,6 +27,9 @@ var update = flag.Bool("update", false, "rewrite testdata/contract.golden")
 
 const goldenPath = "testdata/contract.golden"
 
+// descriptionBudget is the spec cap of 1,500 tokens on all tool descriptions together, at four characters a token.
+const descriptionBudget = 1500 * 4
+
 // refusalRules is every rule name any package refuses with, sorted and de-duplicated.
 func refusalRules() []string {
 	seen := map[string]bool{}
@@ -120,12 +123,12 @@ func TestContractCoversAllTools(t *testing.T) {
 		total += len(tool.Description)
 	}
 	sort.Strings(names)
-	if got := strings.Join(names, ","); got != "confirm,look,read,resolve_gap,search,session_end,session_start,write,write_sign" {
+	if got := strings.Join(names, ","); got != "confirm,coverage,look,read,resolve_gap,search,session_end,session_start,write,write_sign" {
 		t.Errorf("tools = %s", got)
 	}
-	// The spec caps descriptions at 1,500 tokens; four characters a token is the usual estimate.
-	if total > 1500*4 {
-		t.Errorf("descriptions total %d characters", total)
+	t.Logf("descriptions total %d of %d characters", total, descriptionBudget)
+	if total > descriptionBudget {
+		t.Errorf("descriptions total %d characters, budget %d", total, descriptionBudget)
 	}
 }
 

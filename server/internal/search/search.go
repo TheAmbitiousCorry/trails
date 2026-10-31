@@ -41,6 +41,10 @@ var defaults = map[string]float64{
 	"paraphrase_threshold": 0.5,
 	"open_gap_cap":         20,
 	"dismiss_cap":          3,
+	"coverage_limit":       10,
+	"coverage_limit_max":   25,
+	"coverage_window_days": 90,
+	"coverage_dir_max":     50,
 }
 
 // Setting reads a numeric threshold from settings, falling back to the migration's default when the row is missing or malformed.

@@ -20,7 +20,7 @@ One SQLite database per project at `~/.trail/<project-id>/trail.db`, opened with
 - `gaps(id, sign_id, session_id, query, paths_json, state, resolution, target_id, reason, opened_at, resolved_at)`
 - `tags(id, description, defined)`: the tag vocabulary; a tag written before it is defined has `defined = 0` and is absent from orient
 - `ids(id, freed_at)`: slugs of deleted entries, so an id is never reused
-- `settings(key, value)` for caps and thresholds: `fan_out_cap`, `search_threshold`, `duplicate_threshold`, `paraphrase_threshold`, `open_gap_cap`, `dismiss_cap`, and an optional `cap_<kind>_words` per kind
+- `settings(key, value)` for caps and thresholds: `fan_out_cap`, `search_threshold`, `duplicate_threshold`, `paraphrase_threshold`, `open_gap_cap`, `dismiss_cap`, `coverage_limit`, `coverage_limit_max`, `coverage_window_days`, `coverage_dir_max`, and an optional `cap_<kind>_words` per kind
 - `schema_version(version, applied_at)`; migrations are numbered and forward-only, and every entry carries a `body_schema` integer column naming the content schema its body was validated against. Migration 8 (the `staged_*` columns) first writes a consistent copy of an existing database beside it as `trail.db.pre-0008`, kept if it already exists. An older binary refuses a newer database, so rolling back means stopping the server and restoring that copy over `trail.db`
 
 ## Search

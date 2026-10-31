@@ -56,3 +56,29 @@ func OpenGap(ctx context.Context, db *sql.DB, sessionID, query string) (int64, e
 	}
 	return res.LastInsertId()
 }
+
+// GapRow is one open gap of any session.
+type GapRow struct {
+	ID       int64
+	Query    string
+	SignID   string
+	OpenedAt string
+}
+
+// AllOpenGaps lists every open gap of every session, oldest first. SignID is empty when the gap recorded no sign.
+func AllOpenGaps(ctx context.Context, db *sql.DB) ([]GapRow, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(query, paths_json, ''), COALESCE(sign_id, ''), opened_at FROM gaps WHERE state = 'open' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GapRow
+	for rows.Next() {
+		var g GapRow
+		if err := rows.Scan(&g.ID, &g.Query, &g.SignID, &g.OpenedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
