@@ -333,6 +333,11 @@ func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	}
 	switch w.req.Resolution {
 	case "":
+		// An update cannot merge (see the merge case below), so its fix must not offer it.
+		if w.prev != nil {
+			return refusal("duplicate", "%s (%q) already covers this (%.0f%% match). Write again with resolution replace (supersede it) or distinct with a distinct_reason (keep both)",
+				hit.EntryID, hit.Title, math.Min(w.scores.Duplicate, 1)*100), nil
+		}
 		return refusal("duplicate", "%s (%q) already covers this (%.0f%% match). Write again with resolution merge (add your read_when as an alias on it), replace (supersede it) or distinct with a distinct_reason (keep both)",
 			hit.EntryID, hit.Title, math.Min(w.scores.Duplicate, 1)*100), nil
 	case "merge":

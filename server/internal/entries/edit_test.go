@@ -190,6 +190,32 @@ func TestEditSkipsTheDuplicateRuleOnlyWhileTheSearchedTextIsUnchanged(t *testing
 	}
 }
 
+func TestEditDuplicateRefusalOffersOnlyWhatAnUpdateCanUse(t *testing.T) {
+	st, c := open(t)
+	fillers(t, st, c)
+	const first = "Round each invoice line to the nearest cent before summing totals."
+	mustWrite(t, st, c, decision("Quarterly invoice rounding", first))
+	dup := decision("Quarterly invoice rounding", first+"\n\nSecond paragraph about ledgers.")
+	dup.Resolution, dup.DistinctReason = "distinct", "the annual run"
+	y := mustWrite(t, st, c, dup).EntryID
+
+	changed := editOf(t, st, y)
+	changed.BodyMarkdown = "Round each invoice line to the nearest cent before summing every total.\n\nA different second paragraph."
+	res := writeRaw(t, st, c, changed)
+	if res.Refusal == nil || res.Refusal.Rule != "duplicate" {
+		t.Fatalf("edit refusal = %+v", res.Refusal)
+	}
+	fix := res.Refusal.Fix
+	if strings.Contains(fix, "merge") || !strings.Contains(fix, "replace") || !strings.Contains(fix, "distinct_reason") {
+		t.Errorf("an edit's duplicate fix must offer replace or distinct only: %q", fix)
+	}
+
+	fresh := decision("Quarterly invoice rounding", "Round each invoice line to the nearest cent before summing every total.")
+	if res := writeRaw(t, st, c, fresh); res.Refusal == nil || !strings.Contains(res.Refusal.Fix, "merge") {
+		t.Errorf("a new write still offers merge: %+v", res.Refusal)
+	}
+}
+
 func TestEditOfAStagedEntryIsRefused(t *testing.T) {
 	st, c := open(t)
 	id := mustWrite(t, st, c, decision("Branch note", "Written on a branch.")).EntryID
