@@ -123,6 +123,7 @@ type entryOut struct {
 	ReadWhen  string      `json:"read_when"`
 	Untrusted untrusted   `json:"untrusted"`
 	Notice    string      `json:"notice,omitempty"`
+	Staged    string      `json:"staged,omitempty"`
 }
 
 type entryRef struct {
@@ -154,6 +155,7 @@ type readOut struct {
 	ReadWhen         string           `json:"read_when"`
 	Untrusted        untrusted        `json:"untrusted"`
 	Notice           string           `json:"notice,omitempty"`
+	Staged           string           `json:"staged,omitempty"`
 	Lines            int              `json:"lines"`
 }
 
@@ -281,6 +283,7 @@ func (s searchIn) Call() trail.Call { return trail.Call{SessionID: s.SessionID, 
 type searchHit struct {
 	search.Hit
 	Requires []prereqRef `json:"requires,omitempty"`
+	Staged   string      `json:"staged,omitempty"`
 }
 
 type searchOut struct {
@@ -361,7 +364,7 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 		Description: "Read one entry by id. Returns its title, kind, tier, tags, anchors, read_when and body as Markdown inside `untrusted`, " +
 			"plus `lines`, the size of this response in lines. " + untrustedNote + " " +
 			"depth summary returns the first paragraph, full returns the whole body. `path` lists the signs from the root to the entry's home. " +
-			"At depth full, prerequisites already served in this session are listed under `already_read`, not repeated; if one is no longer in your context, read it directly. A summary read is refused (prerequisites_unread) until every prerequisite is read at depth full; the refusal names them, earliest first. confirm requires a read at depth full in this session.",
+			"At depth full, prerequisites already served in this session are listed under `already_read`, not repeated; if one is no longer in your context, read it directly. A summary read is refused (prerequisites_unread) until every prerequisite is read at depth full; the refusal names them, earliest first. confirm requires a read at depth full in this session. A staged entry (held on its branch until the work lands) reads from any checkout and carries staged, the branch.",
 	}, trail.Record(reg, "read", func(ctx context.Context, _ *sdk.CallToolRequest, in readIn, p *project.Project) (*sdk.CallToolResult, readOut, error) {
 		return readEntry(ctx, p.DB(), p.Checker(), in)
 	}))
@@ -373,6 +376,7 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 			"Agent writes land provisional. " +
 			"A rule that fails returns its name and the fix; an agent write to a verified entry is stored as a separate provisional entry linked conflicts_with, and both ids are in the refusal. " +
 			"A duplicate refusal names the existing entry: write again with resolution merge, replace, or distinct plus distinct_reason. " +
+			"A write about code only this branch has is staged, not refused: the reply carries staged, the branch, and only checkouts with that work see the entry until it lands. " +
 			"Returns entry_id and tier.",
 	}, trail.Record(reg, "write", func(ctx context.Context, _ *sdk.CallToolRequest, in writeIn, p *project.Project) (*sdk.CallToolResult, writeOut, error) {
 		req := entries.WriteRequest{Actor: in.SessionID, ParentSignID: in.ParentSignID, Kind: in.Kind, Title: in.Title, ReadWhen: in.ReadWhen,
@@ -415,7 +419,7 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 		Name: "search",
 		Description: "Use this before grep when you do not know where something lives. Returns up to limit entries (default 5, max 10) ranked verified above provisional above stale, " +
 			"each with id, title, read_when, tier, kind and sign_path (sign titles from the root to the entry's home sign), and `requires`, the entry's prerequisites earliest first, each marked read or unread for this session, plus `miss` and `lines`. " +
-			"miss true means nothing matched well enough; a gap is opened at the sign you last looked at unless the project's open gaps are at their cap. " + untrustedNote,
+			"miss true means nothing matched well enough; a gap is opened at the sign you last looked at unless the project's open gaps are at their cap. Hits skip entries staged on a branch whose work your checkout lacks; a staged hit carries staged, the branch. " + untrustedNote,
 	}, trail.Record(reg, "search", func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn, p *project.Project) (*sdk.CallToolResult, searchOut, error) {
 		limit := in.Limit
 		if limit <= 0 {
@@ -445,6 +449,9 @@ func registerTools(srv *sdk.Server, reg *project.Registry) {
 			}
 			for i, h := range hits {
 				out.Hits[i].Hit = h
+				if err := p.DB().QueryRowContext(ctx, `SELECT COALESCE(staged_branch, '') FROM entries WHERE id = ?`, h.EntryID).Scan(&out.Hits[i].Staged); err != nil {
+					return nil, searchOut{}, err
+				}
 				if out.Hits[i].Requires, err = chainState(ctx, p.DB(), read, h.EntryID); err != nil {
 					return nil, searchOut{}, err
 				}
@@ -557,8 +564,8 @@ func serveEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, id, dep
 		return out, err
 	}
 	var body, tags string
-	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json, tags_json FROM entries WHERE id = ?`, id).
-		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body, &tags)
+	err = db.QueryRowContext(ctx, `SELECT id, title, kind, tier, read_when, body_json, tags_json, COALESCE(staged_branch, '') FROM entries WHERE id = ?`, id).
+		Scan(&out.ID, &out.Title, &out.Kind, &out.Tier, &out.ReadWhen, &body, &tags, &out.Staged)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from the orient view or a sign; check the id"}
 	}
@@ -698,7 +705,7 @@ func readEntry(ctx context.Context, db *sql.DB, checker anchor.Checker, in readI
 	}
 	out.ID, out.Title, out.Kind, out.Tier, out.ReadWhen = main.ID, main.Title, main.Kind, main.Tier, main.ReadWhen
 	out.Tags, out.Anchors = main.Tags, main.Anchors
-	out.Untrusted, out.Notice = main.Untrusted, main.Notice
+	out.Untrusted, out.Notice, out.Staged = main.Untrusted, main.Notice, main.Staged
 	out.Lines = countLines(out)
 	return nil, out, nil
 }

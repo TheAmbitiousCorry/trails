@@ -55,3 +55,22 @@ func TestAbandonedEntryIsDeletedThirtyDaysAfterAbandonmentNotBefore(t *testing.T
 		}
 	}
 }
+
+func TestReadAndSearchNameTheBranchOfAStagedEntry(t *testing.T) {
+	main, addr, _, _ := stagedServerDB(t)
+	wx := worktree(t, main, "feat/x", "main")
+	putFile(t, wx, "src/new.go", "package a\n\nfunc New() {}\n")
+	onX := agentAt(t, addr, wx)
+	id := mustZebra(t, onX, "src/new.go")["entry_id"].(string)
+	if got := agentAt(t, addr, main).ok("read", map[string]any{"entry_id": id})["staged"]; got != "feat/x" {
+		t.Errorf("base read by id: staged = %v, want feat/x", got)
+	}
+	hits := onX.ok("search", map[string]any{"query": "zebra crossing scheduler"})["hits"].([]any)
+	if len(hits) == 0 || hits[0].(map[string]any)["staged"] != "feat/x" {
+		t.Errorf("branch search hit = %v, want staged feat/x", hits)
+	}
+	normal := mustZebra(t, agentAt(t, addr, main), "src/a.go")["entry_id"].(string)
+	if got, ok := agentAt(t, addr, main).ok("read", map[string]any{"entry_id": normal})["staged"]; ok {
+		t.Errorf("normal entry read carries staged = %v", got)
+	}
+}
