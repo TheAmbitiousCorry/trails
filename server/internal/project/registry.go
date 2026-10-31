@@ -38,13 +38,15 @@ type Registry struct {
 	byID     map[string]*Project
 	sessions map[string]string
 	runtimes map[string][]string
+	// checkouts is the trusted checkout each session claimed; it lives in memory, so a restart falls back to the header on the next call.
+	checkouts map[string]string
 }
 
 // NewRegistry opens nothing. A zero sweepEvery runs no sweeps, which tests use to keep the clock still.
 func NewRegistry(home string, sweepEvery time.Duration) *Registry {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Registry{home: home, sweepEvery: sweepEvery, ctx: ctx, cancel: cancel,
-		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string][]string{}}
+		byID: map[string]*Project{}, sessions: map[string]string{}, runtimes: map[string][]string{}, checkouts: map[string]string{}}
 }
 
 // IDBound is returned by Open when the repo's id is bound to a different repository whose checkout still exists.
@@ -206,6 +208,14 @@ func (r *Registry) OpenKnown() {
 	}
 }
 
+// Sweep runs one sweep of the project now, the pass the timer runs; the browser's sweep route calls it too.
+func (r *Registry) Sweep(ctx context.Context, p *Project) (trail.SweepReport, error) {
+	p.sweeping.Lock()
+	defer p.sweeping.Unlock()
+	r.dropMissingPaths(p)
+	return trail.Sweep(ctx, p.DB(), p.Checker(), time.Now)
+}
+
 func (r *Registry) startSweep(p *Project) {
 	if r.sweepEvery <= 0 {
 		return
@@ -216,12 +226,11 @@ func (r *Registry) startSweep(p *Project) {
 		tick := time.NewTicker(r.sweepEvery)
 		defer tick.Stop()
 		for {
-			r.dropMissingPaths(p)
-			rep, err := trail.Sweep(r.ctx, p.DB(), p.Checker(), time.Now)
+			rep, err := r.Sweep(r.ctx, p)
 			if err != nil {
 				log.Printf("trails: %s: sweep: %v", p.ID, err)
 			} else {
-				log.Printf("trails: %s: sweep checked %d, dormant %d, deleted %d, sessions closed %d", p.ID, rep.Checked, rep.Dormant, rep.Deleted, rep.Closed)
+				log.Printf("trails: %s: sweep checked %d, dormant %d, deleted %d, promoted %d, sessions closed %d", p.ID, rep.Checked, rep.Dormant, rep.Deleted, rep.Promoted, rep.Closed)
 			}
 			select {
 			case <-r.ctx.Done():

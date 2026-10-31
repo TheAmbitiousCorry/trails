@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/TheAmbitiousCorry/trails/internal/content"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 // DBTX is satisfied by *sql.DB and *sql.Tx, so the write path can refresh the index inside its own transaction.
@@ -154,7 +155,7 @@ var tierFactor = map[string]float64{"verified": 1, "provisional": 0.8, "stale": 
 
 const taskTypeBoost = 1.25
 
-// Rank returns every live entry matching q, best first, with no threshold applied. Dormant and superseded entries are excluded.
+// Rank returns every live entry matching q, best first, with no threshold applied. Dormant and superseded entries are excluded, and so is any entry the Viewer in ctx is not shown.
 // An entry tagged with taskType is boosted; nothing is filtered by it.
 func Rank(ctx context.Context, db DBTX, q, taskType string) ([]Hit, error) {
 	expr := matchExpr(q)
@@ -168,12 +169,16 @@ func Rank(ctx context.Context, db DBTX, q, taskType string) ([]Hit, error) {
 		return nil, err
 	}
 	var hits []Hit
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var h Hit
 		var tags string
 		if err := rows.Scan(&h.EntryID, &h.Title, &h.ReadWhen, &h.Tier, &h.Kind, &tags, &h.signID, &h.Score); err != nil {
 			rows.Close()
 			return nil, err
+		}
+		if !viewer.Sees(h.EntryID) {
+			continue
 		}
 		h.Rank = h.Score
 		if f, ok := tierFactor[h.Tier]; ok {

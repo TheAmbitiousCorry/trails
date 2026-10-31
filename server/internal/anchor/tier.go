@@ -3,6 +3,8 @@ package anchor
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
@@ -58,7 +60,16 @@ func Tier(ctx context.Context, db *sql.DB, entryID string) (string, error) {
 
 // RefreshEntry re-checks every anchor of the entry and returns the ones that failed.
 // A failure parks the current tier in tier_before_stale; all passing again restores it.
+//
+// An entry staged on a branch is not re-checked: its anchors name work that exists only in that branch's checkout, which a Checker for the primary cannot see.
 func RefreshEntry(ctx context.Context, db *sql.DB, c Checker, entryID string) ([]Anchor, error) {
+	var held bool
+	if err := db.QueryRowContext(ctx, `SELECT staged_branch IS NOT NULL FROM entries WHERE id = ?`, entryID).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if held {
+		return nil, nil
+	}
 	as, err := Load(ctx, db, entryID)
 	if err != nil || len(as) == 0 {
 		return nil, err
@@ -152,13 +163,26 @@ func setTier(ctx context.Context, tx *sql.Tx, entryID string, failed bool) error
 
 // StaleCount counts the stale entries anywhere below a sign, whether the tier or a failed anchor says so.
 func StaleCount(ctx context.Context, db *sql.DB, signID string) (int, error) {
-	var n int
-	err := db.QueryRowContext(ctx, `WITH RECURSIVE sub(id) AS (
+	rows, err := db.QueryContext(ctx, `WITH RECURSIVE sub(id) AS (
 			SELECT id FROM signs WHERE id = ?
 			UNION ALL
 			SELECT s.id FROM signs s JOIN sub ON s.parent_id = sub.id)
-		SELECT COUNT(*) FROM entries e
+		SELECT e.id FROM entries e
 		WHERE e.sign_id IN (SELECT id FROM sub) AND e.tier != 'dormant'
-		  AND (e.tier = 'stale' OR EXISTS(SELECT 1 FROM anchors a WHERE a.entry_id = e.id AND a.ok = 0))`, signID).Scan(&n)
-	return n, err
+		  AND (e.tier = 'stale' OR EXISTS(SELECT 1 FROM anchors a WHERE a.entry_id = e.id AND a.ok = 0))`, signID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	viewer, n := view.From(ctx), 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		if viewer.Sees(id) {
+			n++
+		}
+	}
+	return n, rows.Err()
 }

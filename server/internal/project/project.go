@@ -20,6 +20,10 @@ type Project struct {
 	fetch anchor.Fetcher
 	mu    sync.RWMutex
 	paths []string
+	// ancestors caches ancestry results keyed by (landing, HEAD); see Project.contains.
+	ancestors sync.Map
+	// sweeping serialises the periodic sweep and a forced one.
+	sweeping sync.Mutex
 }
 
 func newProject(st *store.Store, paths []string) *Project {

@@ -15,6 +15,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/project"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 // forceAfter is the stop-check call that closes a session the agent never ended.
@@ -160,9 +161,13 @@ func hookJSONMiss(reg *project.Registry, empty any, h func(context.Context, *pro
 		switch {
 		case err != nil:
 		case found:
-			out, err = h(r.Context(), p, sid, in)
+			out, err = h(reg.Place(r.Context(), p, trail.Call{SessionID: sid}), p, sid, in)
 		case miss != nil:
-			out, err = miss(r.Context(), p, in)
+			mctx := r.Context()
+			if p != nil {
+				mctx = view.With(mctx, p.BaseViewer(mctx))
+			}
+			out, err = miss(mctx, p, in)
 		}
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -318,7 +323,7 @@ func edited(ctx context.Context, st *project.Project, sid string, in map[string]
 	return reply, nil
 }
 
-// anchoringEntries lists every live entry whose file, range or dir anchor is rel or a directory containing it, oldest first.
+// anchoringEntries lists every live entry the Viewer in ctx is shown whose file, range or dir anchor is rel or a directory containing it, oldest first.
 func anchoringEntries(ctx context.Context, db *sql.DB, rel string) ([]signpost, error) {
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT e.id, e.read_when, a.type, a.path_or_url, e.created_at
 		FROM anchors a JOIN entries e ON e.id = a.entry_id
@@ -330,10 +335,14 @@ func anchoringEntries(ctx context.Context, db *sql.DB, rel string) ([]signpost, 
 	defer rows.Close()
 	seen := map[string]bool{}
 	var out []signpost
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var id, readWhen, typ, ap, created string
 		if err := rows.Scan(&id, &readWhen, &typ, &ap, &created); err != nil {
 			return nil, err
+		}
+		if !viewer.Sees(id) {
+			continue
 		}
 		ap = strings.TrimSuffix(path.Clean(ap), "/")
 		if (typ != "dir" && ap == rel || typ == "dir" && strings.HasPrefix(rel, ap+"/")) && !seen[id] {
@@ -369,10 +378,14 @@ func anchoredEntry(ctx context.Context, db *sql.DB, rel string) (signpost, bool,
 	defer rows.Close()
 	var best signpost
 	bestLen := -1
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var id, readWhen, typ, ap string
 		if err := rows.Scan(&id, &readWhen, &typ, &ap); err != nil {
 			return signpost{}, false, err
+		}
+		if !viewer.Sees(id) {
+			continue
 		}
 		ap = strings.TrimSuffix(path.Clean(ap), "/")
 		switch {

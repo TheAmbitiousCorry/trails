@@ -37,10 +37,17 @@ type Call struct {
 	Runtime string
 	// Hint is the X-Trails-Project header of the request, set by Record on a minting call; Project outranks it.
 	Hint string
+	// Checkout is the checkout path a minting call names in its input; it outranks CheckoutHint.
+	Checkout string
+	// CheckoutHint is the X-Trails-Checkout header of the request, set by Record on every call.
+	CheckoutHint string
 }
 
 // ProjectHeader is the request header the stdio shim sends with the project id it found in .trail/id.
 const ProjectHeader = "X-Trails-Project"
+
+// CheckoutHeader is the request header the stdio shim sends with the checkout it runs in. It is a claim: the registry honours it only for a path the project binds or git lists as one of its worktrees.
+const CheckoutHeader = "X-Trails-Checkout"
 
 type Input interface{ Call() Call }
 
@@ -48,6 +55,12 @@ type Input interface{ Call() Call }
 // A call it cannot place is returned as a *Refusal and is not logged, since there is no database to log it in.
 type Resolver[P any] interface {
 	Resolve(ctx context.Context, c Call) (P, *sql.DB, error)
+}
+
+// Placer is a Resolver that also places the call's reader: it returns ctx carrying what the handler's readers need, such as the Viewer of the call's checkout.
+// c.SessionID is the issued id on a minting call.
+type Placer[P any] interface {
+	Place(ctx context.Context, p P, c Call) context.Context
 }
 
 type ctxKey struct{}
@@ -94,8 +107,11 @@ func Record[P any, In Input, Out any](r Resolver[P], tool string, h func(context
 	return func(ctx context.Context, req *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Out, error) {
 		var zero Out
 		c := in.Call()
-		if c.Mint && req != nil && req.Extra != nil {
-			c.Hint = strings.TrimSpace(req.Extra.Header.Get(ProjectHeader))
+		if req != nil && req.Extra != nil {
+			c.CheckoutHint = strings.TrimSpace(req.Extra.Header.Get(CheckoutHeader))
+			if c.Mint {
+				c.Hint = strings.TrimSpace(req.Extra.Header.Get(ProjectHeader))
+			}
 		}
 		p, db, err := r.Resolve(ctx, c)
 		if err != nil {
@@ -135,6 +151,9 @@ func Record[P any, In Input, Out any](r Resolver[P], tool string, h func(context
 			}
 		}
 
+		if pl, ok := r.(Placer[P]); ok {
+			ctx = pl.Place(ctx, p, c)
+		}
 		hctx := context.WithValue(context.WithValue(ctx, ctxKey{}, c.SessionID), outcomeKey{}, oc)
 		out, o, herr := h(hctx, req, in, p)
 		var ref *Refusal

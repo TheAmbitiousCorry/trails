@@ -43,6 +43,10 @@ A sign is created with `write_sign` under an existing parent, with a title and a
 - **Local view.** Any `look` call returns one sign: its summary, its parent's title, and its edges. A `look` with no sign, entry, tag or kind returns the root sign. Depth is one. A `depth` parameter up to three nests child signs, and the response says in `lines` how many lines it cost.
 - **Search** returns matching entries each with the path of sign titles above it, so a jump lands with its route filled in. A `read` carries the signs from the root to the entry, each with its id, title and summary line, so a reader who arrived by search or a link sees the forks it skipped. Results are capped at five by default (ten at most) and ranked by text match with a tier factor, so at equal text verified beats provisional beats stale.
 
+## Staged entries
+
+Every reader of the tree takes the session's Viewer: a sign, its edges, the fan-out count, a virtual sign and a tag or kind query are computed from the entries the Viewer is shown, so an entry [staged](./entries.md#staged-entries) on another branch is not an edge, does not count toward the cap and does not change a sign's scent. The browser has no session and sees every entry. A promotion adds the entry to the base branch's signs, so it can push a sign over the cap; the next write there gets the split refusal as usual.
+
 ## Prerequisites
 
 An entry may list `requires`: entry ids a reader needs before this one makes sense. A `read` of the entry at depth `full` returns the whole chain in full, earliest prerequisite first, then the entry itself. Prerequisites this session has already read at `full` are listed by id, title, tier and `read_when` instead of repeated, with a note that they still apply to the entry and are to be read directly if no longer in the reader's context. Nothing in the chain is summarised, truncated or capped: a prerequisite is a declaration that the entry cannot be understood without it, so it is required reading by definition.

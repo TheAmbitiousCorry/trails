@@ -18,16 +18,20 @@ const (
 
 // SweepReport counts what one pass changed.
 type SweepReport struct {
-	Checked, Dormant, Deleted, Closed int
+	Checked, Dormant, Deleted, Closed, Promoted int
 }
 
-// Sweep re-checks every live entry's anchors, expires provisional entries nobody reads, and closes idle sessions.
+// Sweep promotes staged entries whose work reached the base branch, re-checks every live entry's anchors, expires provisional entries nobody reads, and closes idle sessions.
 // A provisional entry unread for 30 days goes dormant; a dormant one untouched for 30 more is deleted and its id recorded in ids.
 // Both moves are logged as 'sweep' events, and that event's time is what dates the dormancy. now is injected so tests control the clock.
 func Sweep(ctx context.Context, db *sql.DB, checker anchor.Checker, now func() time.Time) (SweepReport, error) {
 	var rep SweepReport
 	at := now().UTC()
 
+	var err error
+	if rep.Promoted, err = promoteStaged(ctx, db, checker.Repo, at.Format(time.RFC3339Nano)); err != nil {
+		return rep, err
+	}
 	ids, err := queryStrings(ctx, db, `SELECT id FROM entries WHERE tier != 'dormant'`)
 	if err != nil {
 		return rep, err

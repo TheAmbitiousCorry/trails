@@ -21,6 +21,9 @@ var distFS embed.FS
 type api struct {
 	st   *store.Store
 	repo string
+	// proj and reg are for the routes that act on the project beyond its database.
+	proj *project.Project
+	reg  *project.Registry
 }
 
 // statusError carries the HTTP status a handler wants; anything else is a 500.
@@ -69,6 +72,7 @@ func Register(mux *http.ServeMux, reg *project.Registry, guard func(http.Handler
 		"GET /rejections":              (*api).rejections,
 		"GET /dismissals":              (*api).dismissals,
 		"POST /signs":                  (*api).createSign,
+		"POST /sweep":                  (*api).sweep,
 		"POST /entries/{id}/supersede": (*api).supersede,
 	}
 	for pattern, fn := range routes {
@@ -85,7 +89,7 @@ func withProject(reg *project.Registry, fn func(*api, *http.Request) (any, error
 		if !ok {
 			return nil, notFound("unknown project")
 		}
-		return fn(&api{st: p.Store, repo: p.Repo()}, r)
+		return fn(&api{st: p.Store, repo: p.Repo(), proj: p, reg: reg}, r)
 	})
 }
 

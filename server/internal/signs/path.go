@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 
 	"github.com/TheAmbitiousCorry/trails/internal/content"
 )
@@ -37,16 +38,32 @@ func PathTo(ctx context.Context, db querier, entryID string) ([]PathSign, error)
 			}
 			return nil, err
 		}
-		var body string
-		err := db.QueryRowContext(ctx, `SELECT body_json FROM entries WHERE sign_id = ? AND kind = 'summary' AND tier != 'dormant' ORDER BY created_at, id LIMIT 1`, cur).Scan(&body)
-		text := ""
-		if err == nil {
-			text = content.PlainText(json.RawMessage(body))
-		} else if !errors.Is(err, sql.ErrNoRows) {
+		text, err := signSummary(ctx, db, cur)
+		if err != nil {
 			return nil, err
 		}
 		path = append([]PathSign{{ID: cur, Title: title, Summary: firstParagraph(text, title)}}, path...)
 		cur = parent.String
 	}
 	return path, nil
+}
+
+// signSummary is the plain text of the oldest summary under the sign that the call's Viewer sees.
+func signSummary(ctx context.Context, db querier, signID string) (string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, body_json FROM entries WHERE sign_id = ? AND kind = 'summary' AND tier != 'dormant' ORDER BY created_at, id`, signID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	viewer := view.From(ctx)
+	for rows.Next() {
+		var id, body string
+		if err := rows.Scan(&id, &body); err != nil {
+			return "", err
+		}
+		if viewer.Sees(id) {
+			return content.PlainText(json.RawMessage(body)), nil
+		}
+	}
+	return "", rows.Err()
 }

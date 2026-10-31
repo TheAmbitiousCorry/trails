@@ -12,6 +12,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/search"
+	"github.com/TheAmbitiousCorry/trails/internal/staged"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
@@ -52,16 +53,20 @@ type ConflictOffer struct {
 
 // WriteResult has Refusal set when a rule failed; EntryID and Tier then describe the entry stored anyway, which only a conflict does.
 // Merged means nothing was stored: the request's read_when became an alias on EntryID.
+// Staged names the branch holding the entry when it was stored staged.
 type WriteResult struct {
 	EntryID  string
 	Tier     string
 	Merged   bool
+	Staged   string
 	Refusal  *trail.Refusal
 	Conflict *ConflictOffer
 }
 
 type existing struct {
 	id, signID, kind, tier string
+	// stagedBranch is the branch holding the entry while it is staged.
+	stagedBranch string
 }
 
 // writer carries one request through the rules; a rule fills the fields later rules and the insert read.
@@ -72,6 +77,9 @@ type writer struct {
 	prev    *existing
 	body    json.RawMessage
 	anchors []anchor.Anchor
+	// staged is the anchor rule's verdict; srcRepo is the checkout the anchors resolved against, which the paraphrase rule reads the same files from.
+	staged  staged.Decision
+	srcRepo string
 
 	// Set by the duplicate rule from the request's resolution.
 	merge, supersede *search.Hit
@@ -160,7 +168,7 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 		if err != nil {
 			return WriteResult{}, err
 		}
-		res = WriteResult{EntryID: id, Tier: tier}
+		res = WriteResult{EntryID: id, Tier: tier, Staged: w.staged.Branch}
 	case !human && w.prev.tier == "verified":
 		id, err := w.create(ctx, tx, "provisional")
 		if err != nil {
@@ -178,7 +186,7 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 		if err := w.update(ctx, tx, tier); err != nil {
 			return WriteResult{}, err
 		}
-		res = WriteResult{EntryID: w.prev.id, Tier: tier}
+		res = WriteResult{EntryID: w.prev.id, Tier: tier, Staged: w.prev.stagedBranch}
 	}
 	if err := search.Refresh(ctx, tx, res.EntryID); err != nil {
 		return WriteResult{}, err
@@ -330,7 +338,9 @@ func (w *writer) fillOmitted(ctx context.Context, orig WriteRequest) error {
 func loadExisting(ctx context.Context, db *sql.DB, id string) (*existing, *trail.Refusal, error) {
 	e := &existing{id: id}
 	var before sql.NullString
-	err := db.QueryRowContext(ctx, `SELECT sign_id, kind, tier, tier_before_stale FROM entries WHERE id = ?`, id).Scan(&e.signID, &e.kind, &e.tier, &before)
+	var stagedBranch sql.NullString
+	err := db.QueryRowContext(ctx, `SELECT sign_id, kind, tier, tier_before_stale, staged_branch FROM entries WHERE id = ?`, id).Scan(&e.signID, &e.kind, &e.tier, &before, &stagedBranch)
+	e.stagedBranch = stagedBranch.String
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from a sign or a read; check the id"}, nil
 	}
@@ -364,10 +374,12 @@ func (w *writer) create(ctx context.Context, tx *sql.Tx, tier string) (string, e
 	}
 	tags, _ := json.Marshal(append([]string{}, w.req.Tags...))
 	now := store.Now()
-	_, err = tx.ExecContext(ctx, `INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, decided_by, decided_at, distinct_reason, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, ?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO entries (id, sign_id, kind, title, read_when, body_json, body_schema, tags_json, tier, decided_by, decided_at, distinct_reason, created_at, updated_at,
+			staged_branch, staged_base_name, staged_base, staged_landing)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, ?, NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), NULLIF(?,''))`,
 		id, w.req.ParentSignID, w.req.Kind, w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier,
-		w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, now, now)
+		w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, now, now,
+		w.staged.Branch, w.staged.BaseName, w.staged.Base, w.staged.Landing)
 	if err != nil {
 		return "", err
 	}

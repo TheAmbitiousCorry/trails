@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/TheAmbitiousCorry/trails/internal/content"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 type signRow struct {
@@ -39,7 +40,7 @@ type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// load skips dormant entries: they are off signs by definition.
+// load skips dormant entries, which are off signs by definition, and entries the Viewer in ctx is not shown.
 func load(ctx context.Context, db querier) (*project, error) {
 	p := &project{signs: map[string]*signRow{}, kids: map[string][]string{}, bySign: map[string][]*entryRow{}, df: map[string]int{}}
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(parent_id, ''), title FROM signs ORDER BY position, title, id`)
@@ -66,11 +67,15 @@ func load(ctx context.Context, db querier) (*project, error) {
 		return nil, err
 	}
 	defer rows.Close()
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var e entryRow
 		var tags, body string
 		if err := rows.Scan(&e.ID, &e.SignID, &e.Kind, &e.Title, &e.ReadWhen, &e.Tier, &tags, &body); err != nil {
 			return nil, err
+		}
+		if !viewer.Sees(e.ID) {
+			continue
 		}
 		json.Unmarshal([]byte(tags), &e.Tags)
 		e.Text = content.PlainText(json.RawMessage(body))

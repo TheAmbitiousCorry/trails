@@ -1,4 +1,4 @@
-contract 3
+contract 4
 
 tool confirm
 description: Vouch for a provisional entry after you read it at depth full and checked it against its anchors. Two distinct sessions confirming verify it; a human confirming verifies it alone. You cannot confirm an entry you wrote. Returns the entry's tier and how many sessions have confirmed it.
@@ -171,6 +171,10 @@ description: Call this first, before reading project files, with project: the id
 input_schema: {
   "additionalProperties": false,
   "properties": {
+    "checkout": {
+      "description": "absolute path of the checkout you work in, when it is a worktree of the project's repo; optional",
+      "type": "string"
+    },
     "project": {
       "description": "the id in .trail/id; required when the server holds several projects",
       "type": "string"
@@ -364,6 +368,7 @@ refusal rules
 - anchor
 - closed_session
 - depth_cap
+- detached_checkout
 - dismiss_cap
 - duplicate
 - fill_target

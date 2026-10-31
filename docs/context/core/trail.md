@@ -19,7 +19,7 @@ One row per call, append-only:
 |---|---|
 | `session_id` | Minted by the recorder before the handler runs, so the `session_start` event carries the id its session row is created with. The browser logs its writes under the session id `user`, which has no session row; the rejection log reads it as actor kind `user`. |
 | `at` | timestamp |
-| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_sign` (target: the new sign id), `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`, `edit`, and `sweep` for the expiry pass, whose rows carry result `dormant` or `deleted` and whose dormancy time dates the further 30 days before deletion. The orient view is the response to `session_start`, not a tool of its own. |
+| `tool` | `session_start`, `look`, `search`, `read`, `write`, `write_sign` (target: the new sign id), `write_scores` (the duplicate and paraphrase scores beside each write), `confirm`, `resolve_gap`, `session_end`, `off_trail`, `edit`, and `sweep` for the sweep, whose rows carry result `dormant`, `deleted` or `promoted` and whose dormancy time dates the further 30 days before deletion. The orient view is the response to `session_start`, not a tool of its own. |
 | `target` | sign or entry id, or query text for search |
 | `depth` | `summary` or `full` for reads |
 | `result` | `ok`, `refused:<rule>`, `miss`, `error` |
@@ -48,6 +48,10 @@ Open gaps are capped at twenty per project. When the cap is reached, new misses 
 An entry is edited and unresolved for a session when the session has an `ok` `edit` event on a path the entry anchors (a `file` or `range` anchor with that path, or a `dir` anchor whose directory contains it), and no later `ok` event that targets the entry id and is a `write` or `confirm`. A create counts as a write of the new entry, through its scores event. Dormant and superseded entries are never listed.
 
 `session_end` also refuses with `unconfirmed_edits` while any remain, its fix listing each entry id with the path edited. The stop-check reply carries them as `edits`, stays `open` while gaps or edits remain, and counts blocks and forces the end on the third call as it does for gaps; the stop hook names both when both exist. The hook that reports an edit replies with the anchored entries at once, see [adapters](./adapters.md). A forced end leaves the entries unconfirmed, nothing else.
+
+## Sweep
+
+The sweep runs per project when the project opens, every six hours, and on `POST /api/p/<id>/sweep`, which runs one now and replies `{checked, dormant, deleted, closed, promoted}`. One sweep, in order: it pins the landing commit of each [staged](./entries.md#staged-entries) entry whose work is now committed on its branch and promotes the entries whose landing commit is an ancestor of a base ref (a `sweep` event with result `promoted`); re-checks every live entry's anchors, staged entries excepted; expires provisional entries nobody reads; and closes idle sessions. It reads the branch from the primary's refs, which every worktree shares, and never fetches.
 
 ## Views computed from events
 

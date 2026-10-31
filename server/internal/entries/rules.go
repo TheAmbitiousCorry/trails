@@ -14,17 +14,20 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/content"
 	"github.com/TheAmbitiousCorry/trails/internal/content/markdown"
 	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
+	"github.com/TheAmbitiousCorry/trails/internal/staged"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "procedure": 400, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
-var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable"}
+var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable", "detached_checkout"}
 
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
@@ -128,9 +131,14 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 			return refusal("anchor", "a reference needs exactly one url or transcript anchor"), nil
 		}
 	}
+	checker, ref := w.sourceChecker(ctx, as)
+	if ref != nil {
+		return ref, nil
+	}
+	w.srcRepo = checker.Repo
 	w.anchors = nil
 	for _, a := range as {
-		got, err := w.checker.Resolve(ctx, a)
+		got, err := checker.Resolve(ctx, a)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -140,6 +148,36 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		w.anchors = append(w.anchors, got)
 	}
 	return nil, nil
+}
+
+// sourceChecker picks what the anchors resolve against. A normal entry resolves against the primary, as the checks that follow it do.
+// A write about branch work is staged and resolves against the session's checkout, where the work is; an update to an entry staged on the viewer's own branch does the same and stays staged.
+func (w *writer) sourceChecker(ctx context.Context, as []anchor.Anchor) (anchor.Checker, *trail.Refusal) {
+	v := view.From(ctx)
+	if v.Checkout == "" {
+		return w.checker, nil
+	}
+	here := anchor.Checker{Repo: v.Checkout, Fetcher: w.checker.Fetcher}
+	if w.prev != nil {
+		if w.prev.stagedBranch != "" && w.prev.stagedBranch == v.Branch {
+			return here, nil
+		}
+		return w.checker, nil
+	}
+	d, err := staged.Decide(ctx, v.Checkout, as)
+	switch {
+	case errors.Is(err, staged.ErrDetached):
+		return w.checker, refusal("detached_checkout", "this entry describes work on a branch and HEAD is detached, so no branch can hold it; check out a branch, then write again")
+	case errors.Is(err, staged.ErrDirAnchor):
+		return w.checker, refusal("anchor", "this entry describes work on branch %s and a directory anchor cannot be held with it; anchor the files instead", v.Branch)
+	case err != nil:
+		return w.checker, refusal("anchor", "the staged check failed: %v", err)
+	}
+	if !d.Staged {
+		return w.checker, nil
+	}
+	w.staged = d
+	return here, nil
 }
 
 // maxDuplicateCandidates bounds the self-score lookups: only the best raw matches can be near-identical.
@@ -312,7 +350,7 @@ func paraphrase(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		if a.Type != "file" {
 			continue
 		}
-		if b, err := os.ReadFile(filepath.Join(w.checker.Repo, a.PathOrURL)); err == nil {
+		if b, err := os.ReadFile(filepath.Join(w.srcRepo, a.PathOrURL)); err == nil {
 			src.Write(b)
 			src.WriteByte('\n')
 		}

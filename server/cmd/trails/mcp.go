@@ -273,6 +273,10 @@ func (r *relay) post(line []byte) ([]byte, error) {
 	if r.project != "" {
 		req.Header.Set("X-Trails-Project", r.project)
 	}
+	if r.root != "" {
+		// A claim the server checks against the project's bound paths and git's worktree list.
+		req.Header.Set("X-Trails-Checkout", r.root)
+	}
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return nil, errNoConnect{addr}

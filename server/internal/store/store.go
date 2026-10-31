@@ -163,6 +163,9 @@ func (s *Store) migrate() error {
 		if m.version <= current {
 			continue
 		}
+		if err := s.backupBefore(m.version, current); err != nil {
+			return err
+		}
 		tx, err := s.DB.Begin()
 		if err != nil {
 			return err
@@ -178,6 +181,25 @@ func (s *Store) migrate() error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// backupFor lists the migrations that first write a copy of the database beside it, named trail.db.pre-<version>: an older binary refuses a newer schema, so rolling back means restoring that copy.
+var backupFor = map[int]bool{8: true}
+
+// backupBefore copies a database that already holds data before migration version changes its schema. A fresh database has nothing to lose, and an existing copy is kept: it is the state before the first upgrade.
+func (s *Store) backupBefore(version, current int) error {
+	if !backupFor[version] || current == 0 {
+		return nil
+	}
+	dst := fmt.Sprintf("%s.pre-%04d", s.Path, version)
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+	// VACUUM INTO writes a consistent copy that includes what is still in the WAL.
+	if _, err := s.DB.Exec(`VACUUM INTO ?`, dst); err != nil {
+		return fmt.Errorf("backup before migration %d: %w", version, err)
 	}
 	return nil
 }

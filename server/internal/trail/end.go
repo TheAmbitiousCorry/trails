@@ -9,6 +9,7 @@ import (
 
 	"github.com/TheAmbitiousCorry/trails/internal/search"
 	"github.com/TheAmbitiousCorry/trails/internal/store"
+	"github.com/TheAmbitiousCorry/trails/internal/view"
 )
 
 // OpenGapRow is one unresolved gap as session_end lists it.
@@ -88,7 +89,7 @@ type EditedEntry struct {
 	ID, Path string
 }
 
-// UnconfirmedEdits lists the session's edited and unresolved entries, in entry id order. An entry is unresolved when the latest ok edit event on a path it anchors is newer than the latest ok write, scores or confirm event that targets it.
+// UnconfirmedEdits lists the session's edited and unresolved entries the Viewer in ctx is shown, in entry id order. An entry is unresolved when the latest ok edit event on a path it anchors is newer than the latest ok write, scores or confirm event that targets it.
 func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]EditedEntry, error) {
 	rows, err := db.QueryContext(ctx, `SELECT e.id, a.type, a.path_or_url, ed.id, ed.target,
 			COALESCE((SELECT MAX(r.id) FROM events r WHERE r.session_id = ed.session_id AND r.target = e.id AND r.result = 'ok' AND r.tool IN ('write', 'write_scores', 'confirm')), 0)
@@ -106,11 +107,15 @@ func UnconfirmedEdits(ctx context.Context, db *sql.DB, sessionID string) ([]Edit
 	}{}
 	resolved := map[string]int64{}
 	var order []string
+	viewer := view.From(ctx)
 	for rows.Next() {
 		var id, typ, ap, target string
 		var editID, resolvedID int64
 		if err := rows.Scan(&id, &typ, &ap, &editID, &target, &resolvedID); err != nil {
 			return nil, err
+		}
+		if !viewer.Sees(id) {
+			continue
 		}
 		ap = strings.TrimSuffix(path.Clean(ap), "/")
 		if !(typ != "dir" && ap == target) && !(typ == "dir" && strings.HasPrefix(target, ap+"/")) {
