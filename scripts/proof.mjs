@@ -32,6 +32,8 @@ const sessions = (await getJSON(`${api}/sessions`)).sessions || []
 const sign = graph.nodes.find((n) => n.type === 'sign' && n.id !== 'root') || graph.nodes.find((n) => n.type === 'sign')
 const entry = graph.nodes.find((n) => n.type === 'entry')
 const session = sessions[0]
+// A project holding no staged entries skips the entry badge shot; the Staged page itself is captured either way, so its empty state is a project with none.
+const stagedEntry = (await getJSON(`${api}/staged`)).branches.flatMap((b) => b.entries)[0]
 // An unresolved conflicting pair: a verified original and the provisional copy an agent stored beside it. A server holding none skips the two shots.
 const tierOf = (id) => graph.nodes.find((n) => n.id === id)?.tier
 const conflict = graph.edges.filter((e) => e.relation === 'conflicts_with')
@@ -60,10 +62,15 @@ const shots = [
   ['sessions', at('/sessions')],
   ['gaps', at('/gaps')],
   ['provisional', at('/provisional')],
+  ['staged', at('/staged')],
+  ['staged-light', at('/staged'), 'light'],
+  ['staged-dark', at('/staged'), 'dark'],
+  stagedEntry && ['entry-staged', at(`/entries/${encodeURIComponent(stagedEntry.id)}`)],
   ['tags', at('/tags')],
   ['logs', at('/logs')],
   ['project-select', at('/'), 'select'],
   ['menu', at('/'), 'menu'],
+  stagedEntry && ['staged-sweep', at('/staged'), 'sweep'],
 ].filter(Boolean)
 
 // Returns the first pair of visible labels whose boxes intersect, or null.
@@ -128,9 +135,10 @@ const browser = await chromium.launch()
 
 for (const width of widths) {
   const ctx = await browser.newContext({ viewport: { width, height: 800 } })
+  const schemed = { light: await browser.newContext({ viewport: { width, height: 800 }, colorScheme: 'light' }), dark: await browser.newContext({ viewport: { width, height: 800 }, colorScheme: 'dark' }) }
   for (const [name, path, mode] of shots) {
     if (mode === 'menu' && width > 700) continue
-    const page = await ctx.newPage()
+    const page = await (schemed[mode] ?? ctx).newPage()
     const tag = `${name}-${width}`
     page.on('pageerror', (e) => problems.push(`${tag}: page error: ${e.message}`))
     page.on('console', (m) => { // The refusal shot provokes a 400 on purpose; the browser logs it as a console error.
@@ -192,6 +200,10 @@ for (const width of widths) {
         }
         await page.locator('.replay').scrollIntoViewIfNeeded()
       }
+      if (mode === 'sweep') {
+        await page.getByRole('button', { name: 'Sweep now' }).click()
+        await page.getByRole('status').waitFor()
+      }
       if (mode === 'supersede') {
         const button = page.getByRole('button', { name: /^Supersede / })
         if ((await button.count()) !== 1) problems.push(`${tag}: expected one Supersede button, found ${await button.count()}`)
@@ -216,6 +228,8 @@ for (const width of widths) {
     await page.close()
   }
   await ctx.close()
+  await schemed.light.close()
+  await schemed.dark.close()
 }
 await browser.close()
 

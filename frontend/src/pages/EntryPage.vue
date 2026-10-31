@@ -59,6 +59,11 @@ async function supersede(r: { original: string; by: string }) {
         <span v-if="data.entry.chain_length" class="chip chip-kind">chain +{{ data.entry.chain_length }}</span>
         <span class="muted small">{{ data.entry.reads_30d }} reads in 30 days, updated {{ when(data.entry.updated_at) }}</span>
       </p>
+      <p v-if="data.staged" class="badges">
+        <RouterLink :to="{ name: 'staged' }" class="chip chip-provisional" v-bind="tip('staged')">staged on {{ data.staged.branch }}</RouterLink>
+        <span class="muted small">Held until the work reaches {{ data.staged.base || 'the base branch' }}.</span>
+        <span v-if="data.staged.stages_over" class="muted small">Replaces <RouterLink :to="{ name: 'entry', params: { id: data.staged.stages_over } }">{{ data.staged.stages_over }}</RouterLink> when it lands.</span>
+      </p>
       <p class="lede">{{ data.entry.read_when }}</p>
       <p><RouterLink :to="{ name: 'graph', query: { focus: data.entry.id, depth: '1' } }">Show on graph</RouterLink></p>
       <p v-if="data.entry.tags.length" class="chips"><span v-for="t in data.entry.tags" :key="t" class="chip">{{ t }}</span></p>

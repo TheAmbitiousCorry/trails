@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -90,8 +91,14 @@ func (a *api) entry(r *http.Request) (any, error) {
 		return nil, err
 	}
 
+	staged, err := a.stagedOf(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
 	return map[string]any{
 		"entry":         e,
+		"staged":        staged,
 		"sign_id":       signID,
 		"path":          path,
 		"created_at":    createdAt.String,
@@ -199,4 +206,22 @@ func repoFile(repo, rel string) (string, error) {
 		return "", errors.New("outside repo")
 	}
 	return full, nil
+}
+
+type stagedInfo struct {
+	Branch     string `json:"branch"`
+	Base       string `json:"base"`
+	Landing    string `json:"landing"`
+	StagesOver string `json:"stages_over"`
+}
+
+// stagedOf is the branch hold of an entry, nil for a normal one.
+func (a *api) stagedOf(ctx context.Context, id string) (*stagedInfo, error) {
+	var s stagedInfo
+	err := a.st.DB.QueryRowContext(ctx, `SELECT staged_branch, COALESCE(staged_base_name, ''), COALESCE(staged_landing, ''), COALESCE(stages_over, '') FROM entries WHERE id = ? AND staged_branch IS NOT NULL`, id).
+		Scan(&s.Branch, &s.Base, &s.Landing, &s.StagesOver)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &s, err
 }

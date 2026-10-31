@@ -237,6 +237,8 @@ th { color: var(--mute); font-weight: 500; font-family: var(--mono); font-size: 
 .supersede { font: inherit; font-size: 13px; color: var(--bg); background: var(--accent); font-weight: 500; border: 0; border-radius: 6px; padding: 0.2rem 0.7rem; margin-left: 0.4rem; cursor: pointer; }
 .supersede:hover:not(:disabled) { filter: brightness(1.1); }
 .supersede:disabled { opacity: 0.6; cursor: default; }
+.sweep-now, .promote { margin-left: 0; }
+.branch-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.7rem; font-size: 1.1rem; overflow-wrap: anywhere; }
 
 /* Tooltips: any element with data-tip shows its text on hover and keyboard focus. */
 [data-tip] { position: relative; cursor: help; }

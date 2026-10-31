@@ -12,6 +12,7 @@ const links = [
   { name: 'sessions', label: 'Sessions' },
   { name: 'gaps', label: 'Gaps' },
   { name: 'provisional', label: 'Provisional' },
+  { name: 'staged', label: 'Staged' },
   { name: 'tags', label: 'Tags' },
   { name: 'logs', label: 'Rejections' },
 ]

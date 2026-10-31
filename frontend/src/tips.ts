@@ -4,6 +4,7 @@ export const TIP: Record<string, string> = {
   provisional: 'Provisional: written by an agent and not yet confirmed. Ranked below verified. Unread for 30 days it goes dormant.',
   stale: 'Stale: at least one anchor failed its check, such as a file that changed, a range that moved or an uncommitted edit. Still readable, but the agent is told to check the source. Its old tier returns when every anchor passes again.',
   dormant: 'Dormant: superseded, or provisional and unread for 30 days. Out of search and off the map, reachable by id.',
+  staged: 'Staged: written about work on a branch and held there. Sessions whose checkout has that work see it; a session on the base branch does not. It becomes a normal entry when the work lands on the base branch.',
   gaps: 'Open gaps: searches from this section that found nothing. Each one is a question the wiki could not answer and should be written up or dismissed.',
   documents: 'Documents hanging directly under this section.',
   sections: 'Child sections under this one.',

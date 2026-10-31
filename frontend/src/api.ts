@@ -91,8 +91,11 @@ export interface SignResponse {
 
 export interface LinkRow { relation: string; id: string; title: string; tier: Tier }
 
+export interface StagedInfo { branch: string; base: string; landing: string; stages_over: string }
+
 export interface EntryResponse {
   entry: SignEntry
+  staged: StagedInfo | null
   sign_id: string
   path: Step[]
   created_at: string
@@ -181,6 +184,21 @@ export interface ProvisionalRow {
   confirmed_by: number
   created_at: string
 }
+
+export interface StagedRow {
+  id: string
+  title: string
+  kind: string
+  tier: string
+  state: 'branch_only' | 'committed' | 'abandoned'
+  landing: string
+  last_check: string
+  stages_over: { id: string; title: string; tier: string } | null
+}
+
+export interface StagedBranch { branch: string; base: string; alive: boolean; entries: StagedRow[] }
+
+export interface SweepResult { checked: number; dormant: number; deleted: number; closed: number; promoted: number; abandoned: number; base_unresolved: boolean }
 
 export interface TagRow { id: string; description: string; defined: boolean; uses: number }
 

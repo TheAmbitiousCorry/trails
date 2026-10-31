@@ -8,6 +8,7 @@ import SessionsPage from './pages/SessionsPage.vue'
 import SessionPage from './pages/SessionPage.vue'
 import GapsPage from './pages/GapsPage.vue'
 import ProvisionalPage from './pages/ProvisionalPage.vue'
+import StagedPage from './pages/StagedPage.vue'
 import TagsPage from './pages/TagsPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import GraphPage from './pages/GraphPage.vue'
@@ -29,6 +30,7 @@ export const router = createRouter({
     { path: '/p/:project/sessions/:id', name: 'session', component: SessionPage },
     { path: '/p/:project/gaps', name: 'gaps', component: GapsPage },
     { path: '/p/:project/provisional', name: 'provisional', component: ProvisionalPage },
+    { path: '/p/:project/staged', name: 'staged', component: StagedPage },
     { path: '/p/:project/tags', name: 'tags', component: TagsPage },
     { path: '/p/:project/logs', name: 'logs', component: LogsPage },
     { path: '/:rest(.*)*', redirect: '/' },

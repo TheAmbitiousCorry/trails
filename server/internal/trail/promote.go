@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/gitx"
@@ -63,7 +64,7 @@ func promoteStaged(ctx context.Context, db *sql.DB, checker anchor.Checker, stam
 			return pass, err
 		}
 		if h.landing != "" && staged.AncestorOfBase(ctx, top, h.landing, refs) || staged.LandedByContent(ctx, checker, refs, h.base, as) {
-			if err := promote(ctx, db, h, stamp); err != nil {
+			if err := promote(ctx, db, h, func(x execer) error { return sweepEvent(ctx, x, stamp, h.id, "promoted") }); err != nil {
 				return pass, err
 			}
 			pass.promoted++
@@ -122,14 +123,19 @@ func pinLanding(ctx context.Context, db *sql.DB, top string, h heldEntry) (strin
 	return landing, err
 }
 
-// promote makes one staged entry normal and settles the original it stages over, in one transaction.
-func promote(ctx context.Context, db *sql.DB, h heldEntry, stamp string) error {
+type execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+// promote makes one staged entry normal and settles the original it stages over, in one transaction. record writes the event that names who did it.
+// An abandoned entry is dormant; promoting it by hand returns it to the provisional tier, where the normal checks take over.
+func promote(ctx context.Context, db *sql.DB, h heldEntry, record func(execer) error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL WHERE id = ?`, h.id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL, tier = CASE WHEN tier = 'dormant' THEN 'provisional' ELSE tier END WHERE id = ?`, h.id); err != nil {
 		return err
 	}
 	if h.over != "" {
@@ -137,10 +143,42 @@ func promote(ctx context.Context, db *sql.DB, h heldEntry, stamp string) error {
 			return err
 		}
 	}
-	if err := sweepEvent(ctx, tx, stamp, h.id, "promoted"); err != nil {
+	if err := record(tx); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ErrNotStaged is returned when a hand promotion names an entry that is not held by a branch.
+var ErrNotStaged = errors.New("entry is not staged")
+
+// ErrUnknownStaged is returned when a hand promotion names no entry.
+var ErrUnknownStaged = errors.New("unknown entry")
+
+// PromoteByHand promotes one staged entry whatever its branch has done, by the same code the sweep runs, logged as the user's 'promote' event.
+// Settling the original follows the sweep's rule, so a verified or changed original still ends as a conflicts_with pair. The entry's anchors are then checked like any normal entry's.
+func PromoteByHand(ctx context.Context, db *sql.DB, checker anchor.Checker, id string, now func() time.Time) error {
+	var h heldEntry
+	err := db.QueryRowContext(ctx, `SELECT id, COALESCE(staged_branch, ''), COALESCE(staged_base_name, ''), COALESCE(staged_base, ''), COALESCE(staged_landing, ''), COALESCE(stages_over, ''), stages_over_version
+		FROM entries WHERE id = ?`, id).Scan(&h.id, &h.branch, &h.baseName, &h.base, &h.landing, &h.over, &h.overVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrUnknownStaged
+	}
+	if err != nil {
+		return err
+	}
+	if h.branch == "" {
+		return ErrNotStaged
+	}
+	stamp := now().UTC().Format(time.RFC3339Nano)
+	if err := promote(ctx, db, h, func(x execer) error {
+		_, err := x.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES ('user', ?, 'promote', ?, 'ok')`, stamp, id)
+		return err
+	}); err != nil {
+		return err
+	}
+	_, err = anchor.RefreshEntry(ctx, db, checker, id)
+	return err
 }
 
 // settleOriginal never overrides a human. The promoted copy replaces its original (as an agent write with resolution replace does) only when the original is not verified and has not been written since the copy was staged;

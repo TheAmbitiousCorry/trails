@@ -68,12 +68,14 @@ func Register(mux *http.ServeMux, reg *project.Registry, guard func(http.Handler
 		"GET /sessions/{id}":           (*api).session,
 		"GET /gaps":                    (*api).gaps,
 		"GET /provisional":             (*api).provisional,
+		"GET /staged":                  (*api).staged,
 		"GET /tags":                    (*api).tags,
 		"GET /rejections":              (*api).rejections,
 		"GET /dismissals":              (*api).dismissals,
 		"POST /signs":                  (*api).createSign,
 		"POST /sweep":                  (*api).sweep,
 		"POST /entries/{id}/supersede": (*api).supersede,
+		"POST /entries/{id}/promote":   (*api).promote,
 	}
 	for pattern, fn := range routes {
 		method, route, _ := strings.Cut(pattern, " ")

@@ -143,9 +143,7 @@ func deleteEntry(ctx context.Context, db *sql.DB, stamp, id string) error {
 	return tx.Commit()
 }
 
-func sweepEvent(ctx context.Context, db interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, stamp, id, result string) error {
+func sweepEvent(ctx context.Context, db execer, stamp, id, result string) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO events (session_id, at, tool, target, result) VALUES (?, ?, ?, ?, ?)`, sweepActor, stamp, sweepTool, id, result)
 	return err
 }
