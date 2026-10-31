@@ -90,3 +90,5 @@ The `navigate` skill works through what the map does not cover: open gaps, stale
 /loop 1d /trails:navigate     # a pass a day while this session stays open
 /schedule                      # a routine that runs the pass without a session
 ```
+
+Run an unattended pass under a timeout, as in `timeout 3600 claude -p "run one pass of the trails:navigate skill"`: headless runs have stalled for an hour on the model side, and a stalled pass also holds its verify workers.
