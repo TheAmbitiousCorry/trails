@@ -424,6 +424,7 @@ refusal rules
 - split this fork
 - staged_elsewhere
 - stale
+- stale_edit
 - task_empty
 - unconfirmed_edits
 - unknown_entry

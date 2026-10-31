@@ -133,11 +133,16 @@ func mergeAlias(ctx context.Context, db *sql.DB, entryID, query string) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO entry_aliases (entry_id, read_when) SELECT ?1, ?2
+	added, err := tx.ExecContext(ctx, `INSERT INTO entry_aliases (entry_id, read_when) SELECT ?1, ?2
 		WHERE ?2 != (SELECT read_when FROM entries WHERE id = ?1)
 		  AND NOT EXISTS (SELECT 1 FROM entry_aliases WHERE entry_id = ?1 AND read_when = ?2)`, entryID, query)
 	if err != nil {
 		return err
+	}
+	if n, _ := added.RowsAffected(); n > 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET updated_at = ? WHERE id = ?`, store.Now(), entryID); err != nil {
+			return err
+		}
 	}
 	if err := search.Refresh(ctx, tx, entryID); err != nil {
 		return err

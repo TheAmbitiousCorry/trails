@@ -27,7 +27,7 @@ import (
 var defaultCaps = map[string]int{"summary": 300, "decision": 200, "procedure": 400, "example": 40, "render": 60, "reference": 100}
 
 // RefusalRules names every rule the write path refuses with itself; schema failures from the content walker carry content.RefusalRules.
-var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable", "detached_checkout", "staged_elsewhere"}
+var RefusalRules = []string{"schema", "unknown_entry", "split this", "anchor", "duplicate", "verified", "paraphrase", "unreachable", "immutable", "detached_checkout", "staged_elsewhere", "stale_edit"}
 
 func refusal(rule, format string, args ...any) *trail.Refusal {
 	return &trail.Refusal{Rule: rule, Fix: fmt.Sprintf(format, args...)}
@@ -101,6 +101,18 @@ func wordCap(ctx context.Context, w *writer) (*trail.Refusal, error) {
 func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	r := w.req
 	as := r.Anchors
+	var kept []anchor.Anchor
+	if r.Edit {
+		var err error
+		if kept, err = anchor.Load(ctx, w.db, w.prev.id); err != nil {
+			return nil, err
+		}
+		// An edit that leaves the anchor set alone is judged on the words only: a commit that is no longer reachable, or the anchorless root summary, must not lock the entry.
+		if sameAnchors(as, kept) {
+			w.anchors, w.srcRepo = detach(kept), w.checker.Repo
+			return nil, nil
+		}
+	}
 	types := map[string]int{}
 	for _, a := range as {
 		types[a.Type]++
@@ -138,6 +150,11 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	w.srcRepo = checker.Repo
 	w.anchors = nil
 	for _, a := range as {
+		if i := indexAnchor(kept, a); i >= 0 {
+			w.anchors = append(w.anchors, detach(kept[i : i+1])[0])
+			kept = append(kept[:i:i], kept[i+1:]...)
+			continue
+		}
 		got, err := checker.Resolve(ctx, a)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -148,6 +165,54 @@ func anchors(ctx context.Context, w *writer) (*trail.Refusal, error) {
 		w.anchors = append(w.anchors, got)
 	}
 	return nil, nil
+}
+
+// anchorKey is what makes two anchors the same claim for an edit: type, path and range. A commit is its sha, kept in Hash; a transcript is its provider and id, kept in Extra.
+// Any other Hash is the server's own reading of the source (produced_by is overwritten with HEAD), so it never decides.
+func anchorKey(a anchor.Anchor) string {
+	k := fmt.Sprintf("%s|%s|%d|%d", a.Type, a.PathOrURL, a.RangeStart, a.RangeEnd)
+	switch a.Type {
+	case "commit":
+		k += "|" + a.Hash
+	case "transcript":
+		k += "|" + a.Extra
+	}
+	return k
+}
+
+func sameAnchors(req, stored []anchor.Anchor) bool {
+	if len(req) != len(stored) {
+		return false
+	}
+	left := stored
+	for _, a := range req {
+		i := indexAnchor(left, a)
+		if i < 0 {
+			return false
+		}
+		left = append(left[:i:i], left[i+1:]...)
+	}
+	return true
+}
+
+// indexAnchor is the position in from of an anchor with a's key, or -1.
+func indexAnchor(from []anchor.Anchor, a anchor.Anchor) int {
+	for i, f := range from {
+		if anchorKey(f) == anchorKey(a) {
+			return i
+		}
+	}
+	return -1
+}
+
+// detach copies stored anchors without their row identity, so they insert as new rows that keep hash, ok and check times.
+func detach(as []anchor.Anchor) []anchor.Anchor {
+	out := make([]anchor.Anchor, len(as))
+	for i, a := range as {
+		a.ID, a.EntryID = 0, ""
+		out[i] = a
+	}
+	return out
 }
 
 // sourceChecker picks what the anchors resolve against. A normal entry resolves against the primary, as the checks that follow it do.
@@ -192,6 +257,16 @@ const maxDuplicateCandidates = 3
 // so the threshold is a fraction of a perfect match and does not move with the length of the entry.
 func duplicate(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	q := search.DuplicateQuery(w.req.Title, w.req.ReadWhen, content.PlainText(w.body))
+	if w.req.Edit {
+		// An edit that leaves what the rule searches on alone cannot have made a duplicate, and a stored near-duplicate pair must not lock its entries.
+		was, err := search.EntryQuery(ctx, w.db, w.prev.id)
+		if err != nil {
+			return nil, err
+		}
+		if was == q {
+			return nil, nil
+		}
+	}
 	hits, err := search.Rank(ctx, w.db, q, "")
 	if err != nil {
 		return nil, err
@@ -350,6 +425,16 @@ func paraphrase(ctx context.Context, w *writer) (*trail.Refusal, error) {
 	if w.req.Kind != "summary" {
 		return nil, nil
 	}
+	if w.req.Edit {
+		// The rule judges the body, and the anchored files can come to hold its words after it was written; an edit that leaves the body alone is not the author.
+		var was string
+		if err := w.db.QueryRowContext(ctx, `SELECT body_json FROM entries WHERE id = ?`, w.prev.id).Scan(&was); err != nil {
+			return nil, err
+		}
+		if canonical(was) == canonical(string(w.body)) {
+			return nil, nil
+		}
+	}
 	var src strings.Builder
 	for _, a := range w.anchors {
 		if a.Type != "file" {
@@ -384,6 +469,10 @@ func paraphrase(ctx context.Context, w *writer) (*trail.Refusal, error) {
 
 // fanOut is rule 6. Only an entry kind new to its parent adds an edge, so a second entry of a kind already there is never refused.
 func fanOut(ctx context.Context, w *writer) (*trail.Refusal, error) {
+	// An edit stores no entry; without this the rule counts the edited summary itself as the second one.
+	if w.req.Edit {
+		return nil, nil
+	}
 	if w.prev != nil && w.prev.tier != "verified" {
 		return nil, nil
 	}

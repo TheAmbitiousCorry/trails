@@ -9,6 +9,7 @@ import (
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/gitx"
 	"github.com/TheAmbitiousCorry/trails/internal/staged"
+	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
 type heldEntry struct {
@@ -88,7 +89,7 @@ func abandon(ctx context.Context, db *sql.DB, id, stamp string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE entries SET tier = 'dormant' WHERE id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET tier = 'dormant', updated_at = ? WHERE id = ?`, store.Now(), id); err != nil {
 		return err
 	}
 	if err := sweepEvent(ctx, tx, stamp, id, "abandoned"); err != nil {
@@ -135,7 +136,7 @@ func promote(ctx context.Context, db *sql.DB, h heldEntry, record func(execer) e
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL, tier = CASE WHEN tier = 'dormant' THEN 'provisional' ELSE tier END WHERE id = ?`, h.id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET staged_branch = NULL, tier = CASE WHEN tier = 'dormant' THEN 'provisional' ELSE tier END, updated_at = ? WHERE id = ?`, store.Now(), h.id); err != nil {
 		return err
 	}
 	if h.over != "" {
@@ -198,7 +199,7 @@ func settleOriginal(ctx context.Context, tx *sql.Tx, h heldEntry) error {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links (from_id, to_id, relation) VALUES (?, ?, 'supersedes')`, h.id, h.over); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant' WHERE id = ?`, h.id, h.over)
+		_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant', updated_at = ? WHERE id = ?`, h.id, store.Now(), h.over)
 		return err
 	}
 	lo, hi := h.id, h.over

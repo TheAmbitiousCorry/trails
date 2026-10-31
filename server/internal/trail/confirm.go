@@ -57,7 +57,7 @@ func Confirm(ctx context.Context, db *sql.DB, c anchor.Checker, sessionID, entry
 		return ConfirmResult{}, err
 	}
 	if tier == "provisional" && n >= agentPromotion {
-		if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'verified', promoted_by = 'agents' WHERE id = ? AND tier = 'provisional'`, entryID); err != nil {
+		if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'verified', promoted_by = 'agents', updated_at = ? WHERE id = ? AND tier = 'provisional'`, store.Now(), entryID); err != nil {
 			return ConfirmResult{}, err
 		}
 		tier = "verified"
@@ -82,7 +82,7 @@ func ConfirmHuman(ctx context.Context, db *sql.DB, c anchor.Checker, entryID str
 		return "", err
 	}
 	if tier == "provisional" {
-		if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'verified', promoted_by = 'user' WHERE id = ?`, entryID); err != nil {
+		if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'verified', promoted_by = 'user', updated_at = ? WHERE id = ?`, store.Now(), entryID); err != nil {
 			return "", err
 		}
 		tier = "verified"

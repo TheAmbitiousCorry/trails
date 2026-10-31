@@ -8,6 +8,7 @@ import (
 
 	"github.com/TheAmbitiousCorry/trails/internal/anchor"
 	"github.com/TheAmbitiousCorry/trails/internal/gitx"
+	"github.com/TheAmbitiousCorry/trails/internal/store"
 )
 
 const (
@@ -93,7 +94,7 @@ func Sweep(ctx context.Context, db *sql.DB, checker anchor.Checker, now func() t
 			}
 		}
 		if c.tier == "provisional" {
-			if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'dormant' WHERE id = ?`, c.id); err != nil {
+			if _, err := db.ExecContext(ctx, `UPDATE entries SET tier = 'dormant', updated_at = ? WHERE id = ?`, store.Now(), c.id); err != nil {
 				return rep, err
 			}
 			if err := sweepEvent(ctx, db, stamp, c.id, "dormant"); err != nil {

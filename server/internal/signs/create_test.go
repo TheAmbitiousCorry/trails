@@ -227,3 +227,22 @@ func TestSplitProposalNamesSignIDs(t *testing.T) {
 		t.Errorf("fix = %s", ref.Fix)
 	}
 }
+
+func TestCreateSignMovesUpdatedAtOfMovedEntries(t *testing.T) {
+	db := open(t)
+	addSign(t, db, "ops", "root")
+	addEntry(t, db, "a", "ops", "reference", "alpha")
+	addEntry(t, db, "c", "ops", "decision", "charlie")
+	const longAgo = "2000-01-01T00:00:00Z"
+	db.Exec(`UPDATE entries SET updated_at = ?`, longAgo)
+
+	if _, err := signs.CreateSign(context.Background(), db, signs.CreateRequest{ParentID: "ops", Title: "Billing Notes", Move: []string{"a"}}); err != nil {
+		t.Fatal(err)
+	}
+	var moved, kept string
+	db.QueryRow(`SELECT updated_at FROM entries WHERE id = 'a'`).Scan(&moved)
+	db.QueryRow(`SELECT updated_at FROM entries WHERE id = 'c'`).Scan(&kept)
+	if moved == longAgo || kept != longAgo {
+		t.Errorf("updated_at after the move: moved entry %q, untouched entry %q", moved, kept)
+	}
+}

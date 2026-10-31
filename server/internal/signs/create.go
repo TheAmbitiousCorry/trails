@@ -112,7 +112,7 @@ func CreateSign(ctx context.Context, db *sql.DB, req CreateRequest) (Created, er
 		return out, err
 	}
 	for _, mid := range moveEntries {
-		res, err := tx.ExecContext(ctx, `UPDATE entries SET sign_id = ? WHERE id = ? AND sign_id = ?`, id, mid, req.ParentID)
+		res, err := tx.ExecContext(ctx, `UPDATE entries SET sign_id = ?, updated_at = ? WHERE id = ? AND sign_id = ?`, id, store.Now(), mid, req.ParentID)
 		if err != nil {
 			return out, err
 		}

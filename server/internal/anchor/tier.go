@@ -158,6 +158,10 @@ func storeChecks(ctx context.Context, tx *sql.Tx, as []Anchor, now string) error
 		if a.OK {
 			ok = 1
 		}
+		// A check that finds the same hash and result is not a change, so it leaves the entry's updated_at, which a browser edit compares, alone.
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET updated_at = ? WHERE id = (SELECT entry_id FROM anchors WHERE id = ? AND (COALESCE(hash,'') != ? OR ok != ?))`, now, a.ID, a.Hash, ok); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE anchors SET hash = NULLIF(?,''), fetched_at = NULLIF(?,''), last_checked_at = ?, ok = ? WHERE id = ?`,
 			a.Hash, a.FetchedAt, now, ok, a.ID); err != nil {
 			return err
@@ -170,9 +174,9 @@ func storeChecks(ctx context.Context, tx *sql.Tx, as []Anchor, now string) error
 func setTier(ctx context.Context, tx *sql.Tx, entryID string, failed bool) error {
 	var err error
 	if failed {
-		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier_before_stale = tier, tier = 'stale' WHERE id = ? AND tier NOT IN ('stale', 'dormant')`, entryID)
+		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier_before_stale = tier, tier = 'stale', updated_at = ? WHERE id = ? AND tier NOT IN ('stale', 'dormant')`, store.Now(), entryID)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier = COALESCE(tier_before_stale, 'provisional'), tier_before_stale = NULL WHERE id = ? AND tier = 'stale'`, entryID)
+		_, err = tx.ExecContext(ctx, `UPDATE entries SET tier = COALESCE(tier_before_stale, 'provisional'), tier_before_stale = NULL, updated_at = ? WHERE id = ? AND tier = 'stale'`, store.Now(), entryID)
 	}
 	return err
 }

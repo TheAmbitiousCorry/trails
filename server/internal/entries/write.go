@@ -46,6 +46,10 @@ type WriteRequest struct {
 	DistinctReason string
 	// Staged asks for an entry with no anchors to be held on the checkout's branch.
 	Staged bool
+	// Edit marks a human edit from the browser: an update by actor user that keeps the entry's tier and the hashes of unchanged anchors.
+	Edit bool
+	// IfMatch is the updated_at the editor loaded; a different stored value refuses the update stale_edit. Empty skips the check.
+	IfMatch string
 }
 
 // ConflictOffer names the verified entry an agent tried to overwrite and the provisional entry the server stored instead.
@@ -68,6 +72,8 @@ type WriteResult struct {
 
 type existing struct {
 	id, signID, kind, tier string
+	// stored is the tier column as stored, where tier is the tier a stale entry had before it went stale.
+	stored string
 	// stagedBranch is the branch holding the entry while it is staged.
 	stagedBranch string
 }
@@ -125,14 +131,17 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 	w.req.Requires = cleanList(req.Requires)
 	w.req.SeeAlso = cleanList(req.SeeAlso)
 
+	if req.Edit && (req.Actor != "user" || req.EntryID == "") {
+		return WriteResult{Refusal: refusal("schema", "edit is a human update of an existing entry: it needs actor user and an entry_id")}, nil
+	}
 	if req.EntryID != "" {
 		prev, ref, err := loadExisting(ctx, db, req.EntryID)
 		if err != nil || ref != nil {
 			return WriteResult{Refusal: ref}, err
 		}
 		w.prev = prev
-		// A session that is not on the entry's branch has no staged copy to edit; the browser has no checkout and is not refused.
-		if v := view.From(ctx); v.Checkout != "" && prev.stagedBranch != "" && prev.stagedBranch != v.Branch {
+		// A session that is not on the entry's branch has no staged copy to edit. An agent with no checkout is not refused, but an Edit is: the browser has no checkout to edit a staged entry from.
+		if v := view.From(ctx); prev.stagedBranch != "" && (req.Edit || v.Checkout != "" && prev.stagedBranch != v.Branch) {
 			return WriteResult{Refusal: refusal("staged_elsewhere", "%s is staged on branch %s and is edited from a checkout on that branch; it reaches the base branch when that work lands", prev.id, prev.stagedBranch)}, nil
 		}
 		if err := w.fillOmitted(ctx, req); err != nil {
@@ -171,6 +180,20 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 	}
 	defer tx.Rollback()
 
+	if w.prev != nil && req.IfMatch != "" {
+		var at string
+		err := tx.QueryRowContext(ctx, `SELECT updated_at FROM entries WHERE id = ?`, w.prev.id).Scan(&at)
+		if errors.Is(err, sql.ErrNoRows) {
+			return WriteResult{Refusal: &trail.Refusal{Rule: "unknown_entry", Fix: "entry ids come from a sign or a read; check the id"}}, nil
+		}
+		if err != nil {
+			return WriteResult{}, err
+		}
+		if at != req.IfMatch {
+			return WriteResult{Refusal: refusal("stale_edit", "%s changed after you loaded it; reload to see the newer text, then make your edit again", w.prev.id)}, nil
+		}
+	}
+
 	var res WriteResult
 	switch {
 	case w.prev != nil && w.staged.Staged && w.prev.stagedBranch == "":
@@ -203,6 +226,9 @@ func (w *writer) run(ctx context.Context) (WriteResult, error) {
 				w.prev.id, id)},
 			Conflict: &ConflictOffer{VerifiedID: w.prev.id, NewID: id}}
 	default:
+		if w.req.Edit {
+			tier = w.prev.stored
+		}
 		if err := w.update(ctx, tx, tier); err != nil {
 			return WriteResult{}, err
 		}
@@ -227,7 +253,7 @@ func (w *writer) mergeAlias(ctx context.Context) (WriteResult, error) {
 		return WriteResult{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO entry_aliases (entry_id, read_when) SELECT ?1, ?2
+	added, err := tx.ExecContext(ctx, `INSERT INTO entry_aliases (entry_id, read_when) SELECT ?1, ?2
 		WHERE ?2 != (SELECT read_when FROM entries WHERE id = ?1)
 		  AND NOT EXISTS (SELECT 1 FROM entry_aliases WHERE entry_id = ?1 AND read_when = ?2)`, hit.EntryID, w.req.ReadWhen)
 	if err != nil {
@@ -235,6 +261,11 @@ func (w *writer) mergeAlias(ctx context.Context) (WriteResult, error) {
 	}
 	if err := search.Refresh(ctx, tx, hit.EntryID); err != nil {
 		return WriteResult{}, err
+	}
+	if n, _ := added.RowsAffected(); n > 0 {
+		if err := touch(ctx, tx, hit.EntryID); err != nil {
+			return WriteResult{}, err
+		}
 	}
 	return WriteResult{EntryID: hit.EntryID, Tier: hit.Tier, Merged: true}, tx.Commit()
 }
@@ -248,7 +279,13 @@ func retire(ctx context.Context, tx *sql.Tx, old, newID string) error {
 	if err := addLink(ctx, tx, newID, old, "supersedes"); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant' WHERE id = ?`, newID, old)
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET superseded_by = ?, tier = 'dormant', updated_at = ? WHERE id = ?`, newID, store.Now(), old)
+	return err
+}
+
+// touch moves an entry's updated_at, which is the concurrency token of a browser edit: every change to an entry or to what the browser shows of it must call it or set updated_at in its own statement.
+func touch(ctx context.Context, tx *sql.Tx, id string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET updated_at = ? WHERE id = ?`, store.Now(), id)
 	return err
 }
 
@@ -367,6 +404,7 @@ func loadExisting(ctx context.Context, db *sql.DB, id string) (*existing, *trail
 	if err != nil {
 		return nil, nil, err
 	}
+	e.stored = e.tier
 	// A stale entry is still the tier it had before its anchors failed.
 	if e.tier == "stale" && before.Valid {
 		e.tier = before.String
@@ -406,13 +444,21 @@ func (w *writer) create(ctx context.Context, tx *sql.Tx, tier string) (string, e
 	if err := w.storeParts(ctx, tx, id); err != nil {
 		return "", err
 	}
+	if err := touchChangedPartners(ctx, tx, id, nil); err != nil {
+		return "", err
+	}
 	return id, appendVersion(ctx, tx, id, w, false)
 }
 
 func (w *writer) update(ctx context.Context, tx *sql.Tx, tier string) error {
 	id := w.prev.id
 	tags, _ := json.Marshal(append([]string{}, w.req.Tags...))
-	_, err := tx.ExecContext(ctx, `UPDATE entries SET title = ?, read_when = ?, body_json = ?, body_schema = ?, tags_json = ?, tier = ?, tier_before_stale = NULL,
+	// An edit leaves tier and tier_before_stale as they are, so a stale entry stays stale until a confirm.
+	setTier := `tier = ?, tier_before_stale = NULL,`
+	if w.req.Edit {
+		setTier = `tier = ?,`
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET title = ?, read_when = ?, body_json = ?, body_schema = ?, tags_json = ?, `+setTier+`
 		decided_by = NULLIF(?,''), decided_at = NULLIF(?,''), distinct_reason = COALESCE(NULLIF(?,''), distinct_reason), updated_at = ? WHERE id = ?`,
 		w.req.Title, w.req.ReadWhen, string(w.body), BodySchema, string(tags), tier, w.req.DecidedBy, w.req.DecidedAt, w.distinctReason, store.Now(), id)
 	if err != nil {
@@ -421,11 +467,18 @@ func (w *writer) update(ctx context.Context, tx *sql.Tx, tier string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM anchors WHERE entry_id = ?`, id); err != nil {
 		return err
 	}
+	before, err := seeAlsoPartners(ctx, tx, id)
+	if err != nil {
+		return err
+	}
 	// requires is directed from this entry; see_also is symmetric, so either end counts.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE (from_id = ? AND relation = 'requires') OR (relation = 'see_also' AND (from_id = ? OR to_id = ?))`, id, id, id); err != nil {
 		return err
 	}
 	if err := w.storeParts(ctx, tx, id); err != nil {
+		return err
+	}
+	if err := touchChangedPartners(ctx, tx, id, before); err != nil {
 		return err
 	}
 	return appendVersion(ctx, tx, id, w, true)
@@ -470,6 +523,47 @@ func insertAnchor(ctx context.Context, tx *sql.Tx, a anchor.Anchor) error {
 		VALUES (?, ?, NULLIF(?,''), NULLIF(?,0), NULLIF(?,0), NULLIF(?,''), NULLIF(?,''), NULLIF(?,''), ?, NULLIF(?,''))`,
 		a.EntryID, a.Type, a.PathOrURL, a.RangeStart, a.RangeEnd, a.Hash, a.FetchedAt, a.LastCheckedAt, ok, a.Extra)
 	return err
+}
+
+// seeAlsoPartners lists the entries linked to id by see_also, from either end.
+func seeAlsoPartners(ctx context.Context, tx *sql.Tx, id string) (map[string]bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN from_id = ?1 THEN to_id ELSE from_id END FROM links WHERE relation = 'see_also' AND (from_id = ?1 OR to_id = ?1)`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out[p] = true
+	}
+	return out, rows.Err()
+}
+
+// touchChangedPartners moves updated_at of every entry that gained or lost a see_also link to id, because the browser shows and re-sends see_also from both ends.
+func touchChangedPartners(ctx context.Context, tx *sql.Tx, id string, before map[string]bool) error {
+	after, err := seeAlsoPartners(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	for p := range before {
+		if !after[p] {
+			if err := touch(ctx, tx, p); err != nil {
+				return err
+			}
+		}
+	}
+	for p := range after {
+		if !before[p] {
+			if err := touch(ctx, tx, p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // addLink stores a link, ordering the ends of a symmetric relation so the pair exists once.
