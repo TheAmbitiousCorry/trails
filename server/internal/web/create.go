@@ -8,7 +8,6 @@ import (
 
 	"github.com/TheAmbitiousCorry/trails/internal/entries"
 	"github.com/TheAmbitiousCorry/trails/internal/signs"
-	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
@@ -41,7 +40,7 @@ func (a *api) createSign(r *http.Request) (any, error) {
 	default:
 		result = "error"
 	}
-	if _, lerr := a.st.DB.ExecContext(r.Context(), `INSERT INTO events (session_id, at, tool, target, result) VALUES ('user', ?, 'write_sign', ?, ?)`, store.Now(), target, result); lerr != nil && err == nil {
+	if lerr := a.logUserEvent(r.Context(), "write_sign", target, result); lerr != nil && err == nil {
 		return nil, lerr
 	}
 	switch {
@@ -76,7 +75,7 @@ func (a *api) supersede(r *http.Request) (any, error) {
 	case err != nil:
 		result = "error"
 	}
-	if _, lerr := a.st.DB.ExecContext(r.Context(), `INSERT INTO events (session_id, at, tool, target, result) VALUES ('user', ?, 'supersede', ?, ?)`, store.Now(), id, result); lerr != nil && err == nil {
+	if lerr := a.logUserEvent(r.Context(), "supersede", id, result); lerr != nil && err == nil {
 		return nil, lerr
 	}
 	switch {

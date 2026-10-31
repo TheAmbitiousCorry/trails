@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/TheAmbitiousCorry/trails/internal/gitx"
-	"github.com/TheAmbitiousCorry/trails/internal/store"
 	"github.com/TheAmbitiousCorry/trails/internal/trail"
 )
 
@@ -99,7 +98,7 @@ func (a *api) promote(r *http.Request) (any, error) {
 	}
 	// A success is logged inside the promotion's own transaction.
 	if result != "ok" {
-		if _, lerr := a.st.DB.ExecContext(r.Context(), `INSERT INTO events (session_id, at, tool, target, result) VALUES ('user', ?, 'promote', ?, ?)`, store.Now(), id, result); lerr != nil && err == nil {
+		if lerr := a.logUserEvent(r.Context(), "promote", id, result); lerr != nil && err == nil {
 			return nil, lerr
 		}
 	}

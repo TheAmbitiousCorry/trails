@@ -23,6 +23,12 @@ type versionRow struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// stagedCopy is a staged entry that will replace or conflict with the entry when its branch lands.
+type stagedCopy struct {
+	ID     string `json:"id"`
+	Branch string `json:"branch"`
+}
+
 type linkRow struct {
 	Relation string `json:"relation"`
 	ID       string `json:"id"`
@@ -95,10 +101,44 @@ func (a *api) entry(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	copies, err := collect(ctx, db, `SELECT id, staged_branch FROM entries WHERE stages_over = ? AND staged_branch IS NOT NULL ORDER BY staged_branch, id`, []any{id},
+		func(rs *sql.Rows) (stagedCopy, error) {
+			var c stagedCopy
+			return c, rs.Scan(&c.ID, &c.Branch)
+		})
+	if err != nil {
+		return nil, err
+	}
+	// An update replaces requires and see_also whole, so the form must carry every one the entry has, in whichever direction see_also was written.
+	requires, err := collect(ctx, db, `SELECT to_id FROM links WHERE from_id = ? AND relation = 'requires' ORDER BY rowid`, []any{id},
+		func(rs *sql.Rows) (string, error) {
+			var s string
+			return s, rs.Scan(&s)
+		})
+	if err != nil {
+		return nil, err
+	}
+	seeAlso, err := collect(ctx, db, `SELECT CASE WHEN from_id = ?1 THEN to_id ELSE from_id END FROM links WHERE relation = 'see_also' AND (from_id = ?1 OR to_id = ?1) ORDER BY rowid`, []any{id},
+		func(rs *sql.Rows) (string, error) {
+			var s string
+			return s, rs.Scan(&s)
+		})
+	if err != nil {
+		return nil, err
+	}
+	formAnchors := make([]anchorForm, 0, len(e.Anchors))
+	for _, x := range e.Anchors {
+		formAnchors = append(formAnchors, formOf(x))
+	}
 
 	return map[string]any{
 		"entry":         e,
+		"etag":          e.UpdatedAt,
 		"staged":        staged,
+		"staged_copies": copies,
+		"requires":      requires,
+		"see_also":      seeAlso,
+		"form_anchors":  formAnchors,
 		"sign_id":       signID,
 		"path":          path,
 		"created_at":    createdAt.String,

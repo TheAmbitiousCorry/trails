@@ -1,4 +1,4 @@
-// Package web serves the JSON API, with one write route, and the embedded Vue build.
+// Package web serves the JSON API, with its write routes, and the embedded Vue build.
 package web
 
 import (
@@ -30,18 +30,25 @@ type api struct {
 type statusError struct {
 	code int
 	msg  string
+	// json, when set, is sent as the JSON body instead of msg.
+	json any
 }
 
 func (e *statusError) Error() string { return e.msg }
 
-func notFound(msg string) error   { return &statusError{http.StatusNotFound, msg} }
-func badRequest(msg string) error { return &statusError{http.StatusBadRequest, msg} }
+func notFound(msg string) error   { return &statusError{code: http.StatusNotFound, msg: msg} }
+func badRequest(msg string) error { return &statusError{code: http.StatusBadRequest, msg: msg} }
 
 func handle(fn func(*http.Request) (any, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		out, err := fn(r)
 		var se *statusError
 		switch {
+		case errors.As(err, &se) && se.json != nil:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(se.code)
+			json.NewEncoder(w).Encode(se.json)
+			return
 		case errors.As(err, &se):
 			http.Error(w, se.msg, se.code)
 			return
@@ -73,6 +80,8 @@ func Register(mux *http.ServeMux, reg *project.Registry, guard func(http.Handler
 		"GET /rejections":              (*api).rejections,
 		"GET /dismissals":              (*api).dismissals,
 		"POST /signs":                  (*api).createSign,
+		"POST /entries/{id}":           (*api).edit,
+		"POST /entries/{id}/confirm":   (*api).confirm,
 		"POST /sweep":                  (*api).sweep,
 		"POST /entries/{id}/supersede": (*api).supersede,
 		"POST /entries/{id}/promote":   (*api).promote,
