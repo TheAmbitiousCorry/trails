@@ -1,6 +1,6 @@
 # Trails
 
-Trails is a project wiki that AI agents walk one sign at a time and humans read in a browser. An agent reaches it only through its MCP server, every call is logged, and the browser shows the map, the route each session took, and the gaps it found.
+Trails is a project wiki that AI agents walk one sign at a time and humans read in a browser. An agent reaches it only through its MCP server, every call is logged, and the browser shows the map, the route each session took, and the gaps it found. A person can also edit an entry in the browser and confirm it; editing keeps an entry's trust tier, and Confirm re-checks its anchors before marking it verified.
 
 Trails works with any agent that speaks MCP. The repo holds three things:
 
@@ -65,7 +65,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 ## Status
 
-The walking skeleton is complete: the server with ten MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and browser pages for the map, graph, signs, session routes and queues, with sign creation as the one browser write. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
+The walking skeleton is complete: the server with ten MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and browser pages for the map, graph, signs, session routes and queues. The browser writes signs, supersedes and promotes, and edits and confirms entries. See `docs/roadmap.md` for what is next.
 
 ## License
 
