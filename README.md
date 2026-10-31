@@ -65,7 +65,7 @@ An agent with only the MCP entry still gets the protocol: the `session_start` re
 
 ## Status
 
-The walking skeleton is complete: the server with nine MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and browser pages for the map, graph, signs, session routes and queues, with sign creation as the one browser write. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
+The walking skeleton is complete: the server with ten MCP tools, anchors, search, write rules, the sweep, hook endpoints with adapters for four runtimes, and browser pages for the map, graph, signs, session routes and queues, with sign creation as the one browser write. It has been run against one real repo. The in-place editor and browser actions are next; see `docs/roadmap.md`.
 
 ## License
 
@@ -81,3 +81,12 @@ claude plugin install trails@trails
 ```
 
 The plugin carries the walking protocol skill, the `/trail` command, the hooks and the MCP server entry, which runs `trails mcp`. It does not carry the binary: build it with `make build` and put `bin/trails` on your PATH (or `go install` it), then the shim and the session-start hook start the one server if none runs, and the hook registers any repo with a committed `.trail/id`. A machine that needs another port sets `TRAILS_PORT` once, in the `env` block of `~/.claude/settings.json`; that moves the server, the hooks and the CLI, and the shim reads the same address rules, so the MCP entry needs no port. When `trails` is not on `PATH`, the session-start hook says so in the agent's context on every run.
+
+### Keeping the map current
+
+The `navigate` skill works through what the map does not cover: open gaps, stale entries, files read off the trail and unmapped code, at most ten items a pass. Each pass ends by starting two verify sessions on what it wrote, because a session cannot confirm its own entries. Ask for it ("update the Trails wiki"), or run it on a schedule:
+
+```text
+/loop 1d /trails:navigate     # a pass a day while this session stays open
+/schedule                      # a routine that runs the pass without a session
+```

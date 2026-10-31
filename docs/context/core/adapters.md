@@ -1,6 +1,6 @@
 ---
 domain: adapters
-last-verified: 2026-10-27
+last-verified: 2026-10-31
 ---
 
 # Adapters
@@ -30,6 +30,10 @@ The hook then prints, in order and each only when it applies: the binary line; `
 ## Opening the browser
 
 Every adapter tells its agent to run `trails open trail` when the user asks to see the trail, `trails open map` or `trails open graph` for those pages, and to report the URL printed. Claude Code ships this as the user-invocable skill `trail` (`/trail`); the other runtimes carry a `Seeing the trail` section after the protocol text in their instructions file, which `scripts/check-adapters.sh` excludes from the protocol comparison. The command is the one described in [storage](./storage.md).
+
+## The navigator
+
+The protocol text carries one line for a session whose orient notice names the navigator: finish the task, then tell the user. The Claude Code skill `navigate` (`skills/navigate/SKILL.md`) works the `coverage` list in passes of at most ten items and hands each pass to two `verify` sessions; other runtimes get the protocol line only.
 
 ## What an adapter contains
 
